@@ -226,6 +226,25 @@ body.compact #content[data-view="cpt-caisse"] .g2{gap:8px;}
   </div>
 </div>
 
+<!-- ══════════ MFA MÉDECIN-CHEF ══════════ -->
+<div id="mfa-screen" style="display:none;position:fixed;inset:0;background:linear-gradient(135deg,var(--marine),#1a3a5c);align-items:center;justify-content:center;z-index:1100">
+  <div class="auth-box">
+    <div class="auth-title">Sécurité Médecin-Chef</div>
+    <div class="auth-sub" id="mfa-instructions">Validation du second facteur obligatoire</div>
+    <div id="mfa-qr-zone" style="display:none;text-align:center;margin:12px 0">
+      <img id="mfa-qr" alt="QR code MFA" style="width:190px;height:190px;border:8px solid white">
+      <div style="font-size:10px;color:var(--muted);margin-top:8px">Scannez avec Google Authenticator, Microsoft Authenticator ou Authy.</div>
+      <div id="mfa-secret" style="font-family:monospace;font-size:11px;word-break:break-all;margin-top:6px"></div>
+    </div>
+    <form onsubmit="verifyChiefMfa(event)">
+      <div class="fr"><label for="mfa-code">Code à 6 chiffres</label><input id="mfa-code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required></div>
+      <button class="btn btn-primary" id="mfa-submit" type="submit" style="width:100%">Valider</button>
+      <button class="btn btn-out" type="button" onclick="logout()" style="width:100%;margin-top:8px;color:var(--marine);border-color:var(--border)">Annuler et se déconnecter</button>
+      <div class="pin-error" id="mfa-error" role="alert"></div>
+    </form>
+  </div>
+</div>
+
 <!-- ══════════ APP ══════════ -->
 <div id="app">
   <div class="topbar">
@@ -444,6 +463,7 @@ const DB = {
 // AUTH & SESSION
 // ════════════════════════════════════════════════════════
 let CURRENT_AGENT = null;
+let MFA_STATE = null;
 let COMPACT_MODE = localStorage.getItem('csa2_compact')==='1';
 
 const MODULE_TABS = {
@@ -506,10 +526,88 @@ async function loadAuthenticatedProfile(session){
     isChef:!!data.is_chef,
     userId:session.user.id
   };
+  if(CURRENT_AGENT.isChef&&!(await requireChiefMfa())) return false;
   startApp();
   await pullFromCloud();
   await syncQueue();
   return true;
+}
+async function requireChiefMfa(){
+  const {data:aal,error:aalError}=await supa.auth.mfa.getAuthenticatorAssuranceLevel();
+  if(aalError){
+    document.getElementById('auth-error').textContent='Vérification MFA indisponible.';
+    return false;
+  }
+  if(aal.currentLevel==='aal2') return true;
+
+  const {data:factors,error:factorsError}=await supa.auth.mfa.listFactors();
+  if(factorsError){
+    document.getElementById('auth-error').textContent='Impossible de charger les facteurs MFA.';
+    return false;
+  }
+  const verified=(factors?.totp||[]).find(f=>f.status==='verified');
+  if(verified){
+    MFA_STATE={factorId:verified.id,mode:'challenge'};
+    showMfaScreen(false);
+    return false;
+  }
+
+  for(const factor of (factors?.totp||[]).filter(f=>f.status!=='verified')){
+    await supa.auth.mfa.unenroll({factorId:factor.id});
+  }
+  const {data:enrollment,error:enrollError}=await supa.auth.mfa.enroll({
+    factorType:'totp',
+    friendlyName:'CSA Plateau - Médecin-Chef'
+  });
+  if(enrollError||!enrollment?.id){
+    document.getElementById('auth-error').textContent='Impossible d’activer la MFA.';
+    return false;
+  }
+  MFA_STATE={factorId:enrollment.id,mode:'enroll'};
+  const qr=enrollment.totp?.qr_code||'';
+  document.getElementById('mfa-qr').src=qr.startsWith('<svg')
+    ? 'data:image/svg+xml;charset=utf-8,'+encodeURIComponent(qr)
+    : qr;
+  document.getElementById('mfa-secret').textContent=enrollment.totp?.secret
+    ? 'Clé manuelle : '+enrollment.totp.secret
+    : '';
+  showMfaScreen(true);
+  return false;
+}
+function showMfaScreen(enrollment){
+  document.getElementById('auth-screen').style.display='none';
+  document.getElementById('app').style.display='none';
+  document.getElementById('mfa-screen').style.display='flex';
+  document.getElementById('mfa-qr-zone').style.display=enrollment?'block':'none';
+  document.getElementById('mfa-instructions').textContent=enrollment
+    ? 'Première connexion : configurez votre application Authenticator, puis saisissez le code affiché.'
+    : 'Saisissez le code actuel de votre application Authenticator.';
+  document.getElementById('mfa-code').value='';
+  document.getElementById('mfa-error').textContent='';
+}
+async function verifyChiefMfa(event){
+  event.preventDefault();
+  if(!MFA_STATE) return;
+  const submit=document.getElementById('mfa-submit');
+  const errorEl=document.getElementById('mfa-error');
+  const code=document.getElementById('mfa-code').value.trim();
+  submit.disabled=true;
+  errorEl.textContent='';
+  const {error}=await supa.auth.mfa.challengeAndVerify({
+    factorId:MFA_STATE.factorId,
+    code
+  });
+  if(error){
+    errorEl.textContent='Code incorrect ou expiré. Saisissez le nouveau code affiché.';
+    submit.disabled=false;
+    return;
+  }
+  MFA_STATE=null;
+  document.getElementById('mfa-screen').style.display='none';
+  submit.disabled=false;
+  startApp();
+  await pullFromCloud();
+  await syncQueue();
 }
 function startApp(){
   document.getElementById('auth-screen').style.display='none';
@@ -526,7 +624,9 @@ async function logout(){
   await supa.auth.signOut();
   clearLocalClinicalData();
   CURRENT_AGENT=null;
+  MFA_STATE=null;
   document.getElementById('app').style.display='none';
+  document.getElementById('mfa-screen').style.display='none';
   document.getElementById('auth-screen').style.display='flex';
   document.getElementById('auth-form').reset();
   document.getElementById('auth-submit').disabled=false;

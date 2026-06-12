@@ -31,6 +31,29 @@ permissions = array['soins','pharmacie']
 La permission `as` donne acces a l'accueil patient, aux constantes et a la file
 du jour, sans ouvrir les consultations ni les fonctions financieres.
 
+## MFA du Medecin-Chef
+
+Deployer d'abord l'interface correspondante. A la connexion suivante, le
+Medecin-Chef doit scanner le QR code dans une application TOTP puis valider un
+code a six chiffres. Apres cette premiere validation, executer
+`supabase/migrations/202606120003_require_chief_mfa.sql`. Les politiques RLS
+refusent alors les donnees du chef tant que la session n'est pas au niveau
+`aal2`.
+
+## Correction des constantes historiques
+
+Executer `supabase/migrations/202606120004_correct_historical_constantes.sql`.
+La migration:
+
+- conserve chaque payload original dans `csa_data_corrections`;
+- neutralise uniquement les mesures hors bornes;
+- recalcule l'IMC lorsque poids et taille sont plausibles;
+- ajoute les motifs de correction au payload;
+- peut etre relancee sans dupliquer le journal.
+
+Le rapport de controle se trouve dans
+`supabase/checks/historical_constantes_report.sql`.
+
 ## Verification
 
 La requete anonyme suivante doit retourner `401` ou un tableau vide:
