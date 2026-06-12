@@ -1,0 +1,16 @@
+{
+  "name": "CSA Plateau — Gestion Médicale",
+  "short_name": "CSA Plateau",
+  "description": "Logiciel de gestion médicale CSA Garde Républicaine du Plateau",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#0D2B45",
+  "theme_color": "#0D2B45",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏥</text></svg>",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

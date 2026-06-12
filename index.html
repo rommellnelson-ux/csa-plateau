@@ -1,0 +1,2931 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CSA Plateau — Gestion Médicale v2</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root{
+  --marine:#0D2B45;--vert:#1A6B3C;--rouge:#8B1A1A;--or:#C9A646;
+  --bleu:#1F4E79;--violet:#4B0082;--orang:#7F3F00;--cyan:#006064;
+  --fpm:#2E7D32;--cmu:#1565C0;--na:#6D4C41;--stage:#6A1B9A;
+  --bg:#eef3f8;--card:#fff;--border:#d6dde8;--text:#1a1a2e;--muted:#667084;
+  --r:10px;--sh:0 2px 10px rgba(13,43,69,.08);
+  --or-soft:#f7efd9;--marine-soft:#eaf1f8;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Segoe UI',Arial,sans-serif;background:linear-gradient(180deg,#f6f8fb 0%,var(--bg) 100%);color:var(--text);font-size:13px;}
+
+/* ── AUTH ── */
+#auth-screen{position:fixed;inset:0;background:linear-gradient(135deg,var(--marine),#1a3a5c);display:flex;align-items:center;justify-content:center;z-index:1000;}
+.auth-box{background:#fff;border-radius:16px;padding:32px 36px;width:420px;max-height:90vh;overflow-y:auto;}
+.auth-box{border:1px solid #e5c97a;box-shadow:0 8px 24px rgba(0,0,0,.18);}
+.auth-logo{text-align:center;font-size:40px;margin-bottom:8px;}
+.brand-logo{width:64px;height:64px;object-fit:contain;display:block;margin:0 auto 8px auto;filter:drop-shadow(0 1px 2px rgba(0,0,0,.18));}
+.auth-title{text-align:center;font-size:18px;font-weight:700;color:var(--marine);margin-bottom:4px;}
+.auth-sub{text-align:center;font-size:11px;color:var(--muted);margin-bottom:20px;}
+.agent-list{display:grid;gap:8px;margin-bottom:16px;}
+.agent-btn{padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;background:#fff;display:flex;align-items:center;gap:10px;transition:all .2s;}
+.agent-btn:hover{border-color:var(--marine);background:#f0f4ff;}
+.agent-btn.selected{border-color:var(--marine);background:#EBF3FB;}
+.agent-avatar{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0;}
+.agent-name{font-size:12px;font-weight:700;color:var(--marine);}
+.agent-role{font-size:10px;color:var(--muted);}
+.pin-section{margin-top:12px;}
+.pin-label{font-size:11px;font-weight:700;color:var(--marine);margin-bottom:6px;}
+.pin-dots{display:flex;gap:8px;justify-content:center;margin-bottom:12px;}
+.pin-dot{width:14px;height:14px;border-radius:50%;background:#f0f0f0;border:2px solid var(--border);transition:all .2s;}
+.pin-dot.filled{background:var(--marine);border-color:var(--marine);}
+.pin-pad{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
+.pin-key{padding:14px;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;font-size:16px;font-weight:700;background:#fff;text-align:center;transition:all .15s;color:var(--marine);}
+.pin-key:hover{background:var(--marine);color:#fff;}
+.pin-key:active{transform:scale(.95);}
+.pin-error{color:var(--rouge);text-align:center;font-size:12px;margin-top:8px;height:18px;}
+
+/* ── APP ── */
+#app{display:none;height:100vh;flex-direction:column;}
+.topbar{background:var(--marine);color:#fff;padding:0 18px;height:50px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
+.topbar{background:linear-gradient(90deg,#0D2B45 0%,#123a5c 65%,#1b486f 100%);border-bottom:2px solid var(--or);}
+.topbar-l{display:flex;align-items:center;gap:12px;}
+.topbar-logo{width:30px;height:30px;object-fit:contain;border-radius:4px;background:#ffffff12;padding:2px;}
+.topbar h1{font-size:13px;font-weight:700;}
+.topbar h1 em{color:#FFD700;font-style:normal;}
+.topbar-r{display:flex;align-items:center;gap:10px;font-size:11px;}
+.agent-chip{background:rgba(255,215,0,.2);color:#FFD700;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:700;}
+.agent-chip{border:1px solid rgba(255,215,0,.35);}
+.sync-dot{width:8px;height:8px;border-radius:50%;background:#4CAF50;display:inline-block;margin-right:4px;}
+.sync-dot.off{background:#FF9800;} .sync-dot.sync{background:#2196F3;animation:blink .7s infinite;}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+.btn-out{padding:3px 10px;border:1px solid rgba(255,255,255,.3);background:transparent;color:#fff;border-radius:12px;cursor:pointer;font-size:11px;}
+.btn-out:hover{background:rgba(255,255,255,.12);}
+.btn-compact{padding:3px 10px;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.08);color:#fff;border-radius:12px;cursor:pointer;font-size:11px;}
+.btn-compact.active{background:rgba(201,166,70,.24);border-color:rgba(201,166,70,.7);color:#ffe8a6;}
+
+/* ── NOTIFICATIONS ── */
+#notif-bar{background:#FF6F00;color:#fff;text-align:center;padding:5px;font-size:11px;font-weight:700;display:none;}
+.notif-badge{position:fixed;top:60px;right:16px;background:var(--rouge);color:#fff;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;cursor:pointer;z-index:100;display:none;}
+
+/* ── NAV ── */
+.mod-nav{background:#fff;border-bottom:2px solid var(--border);display:flex;gap:0;overflow-x:auto;flex-shrink:0;}
+.mod-tab{padding:11px 18px;border:none;background:transparent;cursor:pointer;font-size:12px;font-weight:600;color:var(--muted);border-bottom:3px solid transparent;margin-bottom:-2px;white-space:nowrap;transition:all .15s;}
+.mod-tab.active{color:var(--marine);border-bottom-color:var(--or);}
+.mod-tab:hover{color:var(--marine);background:var(--marine-soft);}
+
+/* ── LAYOUT ── */
+.content{flex:1;overflow-y:auto;padding:14px 18px;}
+.card{background:var(--card);border-radius:var(--r);padding:14px;box-shadow:var(--sh);margin-bottom:12px;}
+.card{border:1px solid var(--border);}
+.card-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--marine);border-left:4px solid var(--or);padding-left:8px;margin-bottom:12px;}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;}
+.g4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;}
+@media(max-width:800px){.g2,.g3,.g4{grid-template-columns:1fr 1fr;}}
+
+/* ── KPI ── */
+.kpi{background:linear-gradient(180deg,#ffffff 0%,#fbfdff 100%);border-radius:var(--r);padding:12px 14px;box-shadow:var(--sh);border-left:4px solid var(--marine);border:1px solid var(--border);}
+.kpi-ico{font-size:20px;margin-bottom:3px;}
+.kpi-lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);}
+.kpi-val{font-size:20px;font-weight:800;line-height:1.1;}
+.kpi-sub{font-size:10px;color:var(--muted);margin-top:2px;}
+
+/* ── FORMULAIRE ── */
+.fs{background:#f8fbff;border:1px solid #e6edf5;border-radius:8px;padding:12px;margin-bottom:10px;}
+.fs-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--border);}
+.fr{display:flex;align-items:center;gap:8px;margin-bottom:7px;}
+.fr label{flex:1;font-size:12px;font-weight:600;color:#444;}
+.fr input,.fr select,.fr textarea{padding:6px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;background:#fff;}
+.fr input[type=number]{width:90px;text-align:right;}
+.fr input[type=text],.fr select{flex:1;}
+.fr input:focus,.fr select:focus,.fr textarea:focus{border-color:var(--or);outline:none;box-shadow:0 0 0 2px rgba(201,166,70,.15);}
+.fr textarea{flex:1;resize:vertical;min-height:50px;}
+.tb{font-size:9px;padding:2px 6px;border-radius:4px;font-weight:700;white-space:nowrap;}
+.tb-fpm{background:#e8f5e9;color:var(--fpm);}
+.tb-cmu{background:#e3f2fd;color:var(--cmu);}
+.tb-na{background:#efebe9;color:var(--na);}
+.tb-stage{background:#f3e5f5;color:var(--stage);}
+.tl{display:flex;justify-content:space-between;padding:7px 0;border-top:1px dashed var(--border);font-size:12px;color:#555;}
+.tl strong{color:var(--marine);font-size:14px;}
+.tl.sub{border-top:none;padding-top:3px;}
+
+/* ── BOUTONS ── */
+.btn{padding:8px 16px;border:none;border-radius:8px;cursor:pointer;font-size:12px;font-weight:700;transition:all .15s;}
+.btn-primary{background:var(--marine);color:#fff;}
+.btn-primary:hover{background:#1a3a5c;box-shadow:0 2px 8px rgba(13,43,69,.22);}
+.btn-success{background:var(--vert);color:#fff;}
+.btn-success:hover{background:#145029;}
+.btn-warn{background:var(--or);color:#2a1f00;}
+.btn-danger{background:transparent;color:var(--rouge);border:1.5px solid var(--rouge);}
+.btn-sm{padding:5px 10px;font-size:11px;}
+.btn-print{background:#f0f0f0;color:var(--marine);border:1px solid var(--border);}
+.btn-row{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;}
+
+/* ── TABLE ── */
+.tw{overflow-x:auto;}
+table{width:100%;border-collapse:collapse;font-size:11px;}
+th{background:var(--marine);color:#fff;padding:7px 9px;text-align:left;font-size:10px;font-weight:600;white-space:nowrap;}
+th{border-bottom:1px solid #0a2237;}
+td{padding:6px 9px;border-bottom:1px solid #f0f0f0;vertical-align:middle;}
+tr:hover td{background:#f8fbff;}
+.tr-tot td{background:#FFF8E1;font-weight:700;border-top:2px solid var(--or);}
+.badge{display:inline-block;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:700;}
+.b-fpm{background:#e8f5e9;color:var(--fpm);}
+.b-cmu{background:#e3f2fd;color:var(--cmu);}
+.b-na{background:#efebe9;color:var(--na);}
+.b-stage{background:#f3e5f5;color:var(--stage);}
+.b-ok{background:#e8f5e9;color:#2E7D32;}.b-warn{background:#FFF8E1;color:#B8860B;}.b-err{background:#ffebee;color:#C62828;}
+
+/* ── ALERTE ── */
+.al{padding:9px 12px;border-radius:8px;margin-bottom:8px;font-size:12px;}
+.al-warn{background:#fff8e5;border-left:4px solid var(--or);}
+.al-ok{background:#E8F5E9;border-left:4px solid var(--vert);}
+.al-err{background:#FFEBEE;border-left:4px solid var(--rouge);}
+.al-info{background:#eaf4ff;border-left:4px solid var(--cmu);}
+.al strong{display:block;margin-bottom:2px;font-size:12px;}
+
+/* ── STOCK BARS ── */
+.sk-row{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #f5f5f5;}
+.sk-name{flex:1;font-size:11px;font-weight:600;}
+.sk-bw{width:90px;background:#f0f0f0;border-radius:4px;height:8px;overflow:hidden;flex-shrink:0;}
+.sk-bar{height:100%;border-radius:4px;}
+.sk-qty{width:70px;text-align:right;font-size:11px;font-weight:700;flex-shrink:0;}
+
+/* ── REÇU ── */
+.recu{background:#fff;border:1px solid var(--border);border-radius:8px;padding:14px;font-size:11px;max-width:320px;font-family:monospace;}
+.recu-brand{display:flex;justify-content:center;margin-bottom:6px;}
+.recu-brand img{width:34px;height:34px;object-fit:contain;}
+.recu-title{text-align:center;font-weight:700;font-size:13px;margin-bottom:4px;}
+.recu-line{display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px dashed #eee;}
+.recu-tot{display:flex;justify-content:space-between;font-weight:700;font-size:13px;padding-top:7px;border-top:2px solid #333;margin-top:4px;}
+
+/* ── CONSTANTES ── */
+.const-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin:8px 0;}
+.const-item{background:#f0f4ff;border-radius:8px;padding:10px;text-align:center;}
+.const-val{font-size:20px;font-weight:800;color:var(--marine);}
+.const-lbl{font-size:9px;color:var(--muted);text-transform:uppercase;}
+.imc-pill{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;margin-top:4px;}
+
+/* ── SEARCH ── */
+.sb{display:flex;gap:8px;margin-bottom:10px;}
+.sb input{flex:1;padding:7px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;}
+.sb input:focus{border-color:var(--marine);outline:none;}
+.pat-card{background:#fff;border:1.5px solid var(--border);border-radius:8px;padding:10px 12px;display:flex;align-items:center;gap:10px;cursor:pointer;transition:all .15s;margin-bottom:6px;}
+.pat-card:hover{border-color:var(--or);background:#f7fbff;}
+.pat-av{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0;}
+
+/* ── MODAL ── */
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:500;display:flex;align-items:center;justify-content:center;}
+.modal{background:#fff;border-radius:12px;padding:20px 24px;width:500px;max-height:80vh;overflow-y:auto;}
+.modal-title{font-size:15px;font-weight:700;color:var(--marine);margin-bottom:14px;}
+.modal-close{float:right;cursor:pointer;font-size:18px;color:var(--muted);}
+
+@media print{
+  .topbar,.mod-nav,.btn-row,.btn,.no-print{display:none!important;}
+  .card{box-shadow:none;border:1px solid #ccc;page-break-inside:avoid;}
+  body{background:#fff;}
+}
+canvas{max-height:180px;}
+
+/* ── MODE COMPACT ── */
+body.compact .content{padding:8px 10px;}
+body.compact .card{padding:10px;margin-bottom:8px;}
+body.compact .card-title{font-size:10px;margin-bottom:8px;}
+body.compact .mod-tab{padding:8px 12px;font-size:11px;}
+body.compact .kpi{padding:8px 10px;}
+body.compact .kpi-val{font-size:17px;}
+body.compact .fs{padding:8px;margin-bottom:7px;}
+body.compact .fr{gap:6px;margin-bottom:5px;}
+body.compact .fr label{font-size:11px;}
+body.compact .fr input,body.compact .fr select,body.compact .fr textarea{padding:4px 7px;font-size:11px;}
+body.compact .btn{padding:6px 10px;font-size:11px;}
+body.compact th{padding:5px 7px;font-size:9px;}
+body.compact td{padding:4px 7px;font-size:10px;}
+body.compact .pat-card{padding:7px 9px;margin-bottom:4px;}
+body.compact #content[data-view="soins-actes"] .g2,
+body.compact #content[data-view="cpt-caisse"] .g2{gap:8px;}
+</style>
+</head>
+<body>
+
+<div id="notif-bar"></div>
+
+<!-- ══════════ AUTH SCREEN ══════════ -->
+<div id="auth-screen">
+  <div class="auth-box">
+    <img class="brand-logo" id="auth-logo" alt="Logo établissement">
+    <div class="auth-logo" id="auth-logo-fallback" style="display:none">🏥</div>
+    <div class="auth-title">CSA — Garde Républicaine du Plateau</div>
+    <div class="auth-sub">Sélectionnez votre identifiant et entrez votre code PIN</div>
+    <div id="auth-step1">
+      <div style="font-size:11px;font-weight:700;color:var(--marine);margin-bottom:8px">Agents du service :</div>
+      <div class="agent-list" id="agent-list"></div>
+    </div>
+    <div id="auth-step2" style="display:none">
+      <div id="auth-selected-name" style="font-size:13px;font-weight:700;color:var(--marine);text-align:center;margin-bottom:12px"></div>
+      <div class="pin-label" style="text-align:center">Entrez votre code PIN</div>
+      <div class="pin-dots" id="pin-dots">
+        <div class="pin-dot" id="pd0"></div>
+        <div class="pin-dot" id="pd1"></div>
+        <div class="pin-dot" id="pd2"></div>
+        <div class="pin-dot" id="pd3"></div>
+      </div>
+      <div class="pin-pad">
+        <button class="pin-key" onclick="pinKey('1')">1</button>
+        <button class="pin-key" onclick="pinKey('2')">2</button>
+        <button class="pin-key" onclick="pinKey('3')">3</button>
+        <button class="pin-key" onclick="pinKey('4')">4</button>
+        <button class="pin-key" onclick="pinKey('5')">5</button>
+        <button class="pin-key" onclick="pinKey('6')">6</button>
+        <button class="pin-key" onclick="pinKey('7')">7</button>
+        <button class="pin-key" onclick="pinKey('8')">8</button>
+        <button class="pin-key" onclick="pinKey('9')">9</button>
+        <button class="pin-key" onclick="pinKey('back')" style="font-size:14px">⌫</button>
+        <button class="pin-key" onclick="pinKey('0')">0</button>
+        <button class="pin-key" onclick="pinBackToList()" style="font-size:11px">↩</button>
+      </div>
+      <div class="pin-error" id="pin-error"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ APP ══════════ -->
+<div id="app">
+  <div class="topbar">
+    <div class="topbar-l">
+      <img class="topbar-logo" id="top-logo" alt="Logo établissement">
+      <span id="top-logo-fallback" style="font-size:20px;display:none">🏥</span>
+      <h1>CSA Plateau — <em id="mod-title">Module</em></h1>
+    </div>
+    <div class="topbar-r">
+      <span class="agent-chip" id="agent-chip">—</span>
+      <span><span class="sync-dot" id="sync-dot"></span><span id="sync-lbl">En ligne</span></span>
+      <button class="btn-compact" id="compact-toggle" onclick="toggleCompactMode()">Compact</button>
+      <span id="clock-top" style="opacity:.7"></span>
+      <button class="btn-out" onclick="logout()">Changer</button>
+    </div>
+  </div>
+  <div class="mod-nav" id="mod-nav"></div>
+  <div class="content" id="content"></div>
+</div>
+
+<script>
+// ════════════════════════════════════════════════════════
+// CONFIG SUPABASE
+// ════════════════════════════════════════════════════════
+const SUPABASE_URL = 'https://wsnehnempnexzxzuklbv.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_FKlt6IevUM0nceNw13qiMA_OxMponku';
+const INSTITUTION_LOGO_URL = './assets/logo.png';
+const CLOUD_TABLE = 'csa_events';
+const SYNC_TABLES = ['patients','consultations','constantes','transactions','labo_actes','soins','observations','pharma_ventes','clotures','audit_logs'];
+let supa = null;
+let IS_ONLINE = navigator.onLine;
+let SYNC_Q = JSON.parse(localStorage.getItem('csa2_sq')||'[]');
+let LAST_SYNC_ERROR = '';
+let IS_SYNCING = false;
+
+// ════════════════════════════════════════════════════════
+// PERSONNEL — 13 agents + médecin-chef
+// ════════════════════════════════════════════════════════
+const AGENTS = [
+  // ACCUEIL CMU (3) — Bâtiment PREFECTURE
+  {id:'ACC1',nom:'CISSE AICHATA',role:'Agent d\'accueil CMU',module:'accueil',pin:'1111',color:'#2E7D32',bldg:'PREFECTURE'},
+  {id:'ACC2',nom:'ETTIEN KACOU EUGENE',role:'Agent d\'accueil CMU',module:'accueil',pin:'1122',color:'#2E7D32',bldg:'PREFECTURE'},
+  {id:'ACC3',nom:'KOUADIO AHOU RUTH',role:'Agent d\'accueil CMU',module:'accueil',pin:'1133',color:'#2E7D32',bldg:'PREFECTURE'},
+  // INFIRMIERS soins (3) — accès module Soins uniquement
+  {id:'INF1',nom:'BAMBA YOUSSOUF',role:'Infirmier',module:'soins',pin:'2211',color:'#1565C0',bldg:'SOUS-PREFECTURE'},
+  {id:'INF2',nom:'ESSOH PAUL ELKANA E.',role:'Infirmier',module:'soins',pin:'2222',color:'#1565C0',bldg:'SOUS-PREFECTURE'},
+  {id:'INF3',nom:'COULIBALY N\'KLO J. N.',role:'Infirmier',module:'soins',pin:'2233',color:'#1565C0',bldg:'SOUS-PREFECTURE'},
+  // GESTIONNAIRES PHARMACIE (2) — infirmiers responsables pharmacie
+  {id:'PHA1',nom:'N\'GUESSAN N. BERENICE',role:'Infirmière / Gestionnaire Pharmacie',module:'pharmacie',pin:'2244',color:'#7F3F00',bldg:'SOUS-PREFECTURE'},
+  {id:'PHA2',nom:'SORO OBETON',role:'Infirmier / Gestionnaire Pharmacie',module:'pharmacie',pin:'2255',color:'#7F3F00',bldg:'SOUS-PREFECTURE'},
+  // LABORATOIRE (2)
+  {id:'LAB1',nom:'KOSSONOU AKOUA DEBORA',role:'Laborantine',module:'labo',pin:'3311',color:'#1F4E79'},
+  {id:'LAB2',nom:'BINTA',role:'Laborantine',module:'labo',pin:'3322',color:'#1F4E79'},
+  // COMPTABLES / CAISSIÈRES (2)
+  {id:'CPT1',nom:'KADI',role:'Comptable / Caissière',module:'compta',pin:'4411',color:'#4B0082'},
+  {id:'CPT2',nom:'JOCELINE',role:'Comptable / Caissière',module:'compta',pin:'4422',color:'#4B0082'},
+  // MÉDECIN-CHEF
+  {id:'MED',nom:'Médecin-Chef',role:'Médecin-Chef / Commandant',module:'chef',pin:'0000',color:'#0D2B45',isChef:true},
+];
+
+// ════════════════════════════════════════════════════════
+// TARIFS
+// ════════════════════════════════════════════════════════
+const TARIFS = {
+  consult:{FPM:0,CMU:150,NA:1000},
+  stage:5000, carnet:1000, thermo:1000,
+  obs:{FPM:150,CMU:150,NA:500},  // FPM au tarif CMU pour l'observation
+  B:100, AMI:100
+};
+
+// ════════════════════════════════════════════════════════
+// CATALOGUE MÉDICAMENTS (base initiale — modifiable par Chef)
+// Prix cession + majoration 15% pour CMU
+// ════════════════════════════════════════════════════════
+const MEDS_DEFAULT = [
+  {id:'M001',nom:'Artémether+Luméfantrine 20/120mg cp',dci:'AL',forme:'cp',unite:'plaquette/6',px_achat:500,px_cession:800,stock:150,seuil:30,categorie:'Antipaludéen'},
+  {id:'M002',nom:'Quinine 500mg cp',dci:'Quinine',forme:'cp',unite:'cp',px_achat:50,px_cession:150,stock:500,seuil:100,categorie:'Antipaludéen'},
+  {id:'M003',nom:'Artésunate injectable 60mg',dci:'Artésunate',forme:'inj',unite:'flacon',px_achat:2500,px_cession:3500,stock:30,seuil:10,categorie:'Antipaludéen'},
+  {id:'M004',nom:'Paracétamol 500mg cp',dci:'Paracétamol',forme:'cp',unite:'cp',px_achat:20,px_cession:50,stock:1000,seuil:200,categorie:'Antalgique'},
+  {id:'M005',nom:'Paracétamol sirop 120mg/5ml',dci:'Paracétamol',forme:'sirop',unite:'flacon',px_achat:800,px_cession:1200,stock:40,seuil:10,categorie:'Antalgique'},
+  {id:'M006',nom:'Ibuprofène 400mg cp',dci:'Ibuprofène',forme:'cp',unite:'cp',px_achat:50,px_cession:150,stock:300,seuil:60,categorie:'AINS'},
+  {id:'M007',nom:'Amoxicilline 500mg cp',dci:'Amoxicilline',forme:'cp',unite:'cp',px_achat:100,px_cession:200,stock:400,seuil:100,categorie:'Antibiotique'},
+  {id:'M008',nom:'Amoxicilline 250mg/5ml sirop',dci:'Amoxicilline',forme:'sirop',unite:'flacon',px_achat:900,px_cession:1500,stock:50,seuil:15,categorie:'Antibiotique'},
+  {id:'M009',nom:'Ceftriaxone 1g inj',dci:'Ceftriaxone',forme:'inj',unite:'flacon',px_achat:1500,px_cession:2500,stock:40,seuil:10,categorie:'Antibiotique'},
+  {id:'M010',nom:'Azithromycine 250mg cp',dci:'Azithromycine',forme:'cp',unite:'cp',px_achat:200,px_cession:400,stock:200,seuil:40,categorie:'Antibiotique'},
+  {id:'M011',nom:'Métronidazole 500mg cp',dci:'Métronidazole',forme:'cp',unite:'cp',px_achat:50,px_cession:150,stock:300,seuil:60,categorie:'Antibiotique'},
+  {id:'M012',nom:'Métronidazole 500mg/100ml perf',dci:'Métronidazole',forme:'perf',unite:'flacon',px_achat:1200,px_cession:2000,stock:25,seuil:8,categorie:'Antibiotique'},
+  {id:'M013',nom:'Doxycycline 100mg cp',dci:'Doxycycline',forme:'cp',unite:'cp',px_achat:100,px_cession:250,stock:200,seuil:40,categorie:'Antibiotique'},
+  {id:'M014',nom:'Cotrimoxazole 480mg cp',dci:'Cotrimoxazole',forme:'cp',unite:'cp',px_achat:30,px_cession:80,stock:400,seuil:80,categorie:'Antibiotique'},
+  {id:'M015',nom:'Gentamicine 80mg inj',dci:'Gentamicine',forme:'inj',unite:'ampoule',px_achat:300,px_cession:600,stock:50,seuil:10,categorie:'Antibiotique'},
+  {id:'M016',nom:'Ringer Lactate 500ml',dci:'RL',forme:'perf',unite:'flacon',px_achat:600,px_cession:900,stock:60,seuil:20,categorie:'Soluté'},
+  {id:'M017',nom:'Sérum physiologique 500ml',dci:'NaCl 0.9%',forme:'perf',unite:'flacon',px_achat:500,px_cession:800,stock:60,seuil:20,categorie:'Soluté'},
+  {id:'M018',nom:'Sérum glucosé 5% 500ml',dci:'SG5%',forme:'perf',unite:'flacon',px_achat:550,px_cession:850,stock:40,seuil:15,categorie:'Soluté'},
+  {id:'M019',nom:'Vitamine C 250mg amp inj',dci:'Ascorbate',forme:'inj',unite:'ampoule',px_achat:100,px_cession:200,stock:100,seuil:20,categorie:'Vitamines'},
+  {id:'M020',nom:'Vitamine B complexe amp',dci:'Vit B',forme:'inj',unite:'ampoule',px_achat:150,px_cession:300,stock:80,seuil:15,categorie:'Vitamines'},
+  {id:'M021',nom:'Oméprazole 20mg cp',dci:'Oméprazole',forme:'cp',unite:'cp',px_achat:80,px_cession:200,stock:200,seuil:40,categorie:'Gastro'},
+  {id:'M022',nom:'Ranitidine 150mg cp',dci:'Ranitidine',forme:'cp',unite:'cp',px_achat:50,px_cession:150,stock:200,seuil:40,categorie:'Gastro'},
+  {id:'M023',nom:'Métoclopramide 10mg cp',dci:'Métoclopramide',forme:'cp',unite:'cp',px_achat:30,px_cession:80,stock:150,seuil:30,categorie:'Gastro'},
+  {id:'M024',nom:'SRO sachet',dci:'SRO',forme:'sachet',unite:'sachet',px_achat:50,px_cession:150,stock:200,seuil:50,categorie:'Gastro'},
+  {id:'M025',nom:'Tramadol 50mg cp',dci:'Tramadol',forme:'cp',unite:'cp',px_achat:100,px_cession:300,stock:100,seuil:20,categorie:'Antalgique'},
+  {id:'M026',nom:'Diclofénac 75mg inj',dci:'Diclofénac',forme:'inj',unite:'ampoule',px_achat:200,px_cession:400,stock:60,seuil:12,categorie:'AINS'},
+  {id:'M027',nom:'Prednisolone 5mg cp',dci:'Prednisolone',forme:'cp',unite:'cp',px_achat:30,px_cession:100,stock:200,seuil:40,categorie:'Corticoïde'},
+  {id:'M028',nom:'Dexaméthasone 4mg inj',dci:'Dexaméthasone',forme:'inj',unite:'ampoule',px_achat:300,px_cession:600,stock:40,seuil:10,categorie:'Corticoïde'},
+  {id:'M029',nom:'Salbutamol inhalateur',dci:'Salbutamol',forme:'inhaler',unite:'flacon',px_achat:2000,px_cession:3000,stock:15,seuil:4,categorie:'Resp.'},
+  {id:'M030',nom:'Loratadine 10mg cp',dci:'Loratadine',forme:'cp',unite:'cp',px_achat:50,px_cession:150,stock:150,seuil:30,categorie:'Antihistaminique'},
+  {id:'M031',nom:'Furosémide 40mg cp',dci:'Furosémide',forme:'cp',unite:'cp',px_achat:30,px_cession:100,stock:100,seuil:20,categorie:'Diurétique'},
+  {id:'M032',nom:'Amlodipine 5mg cp',dci:'Amlodipine',forme:'cp',unite:'cp',px_achat:50,px_cession:150,stock:150,seuil:30,categorie:'Cardio'},
+  {id:'M033',nom:'Captopril 25mg cp',dci:'Captopril',forme:'cp',unite:'cp',px_achat:30,px_cession:100,stock:150,seuil:30,categorie:'Cardio'},
+  {id:'M034',nom:'Diazépam 5mg cp',dci:'Diazépam',forme:'cp',unite:'cp',px_achat:30,px_cession:100,stock:60,seuil:12,categorie:'Psycho'},
+  {id:'M035',nom:'Glibenclamide 5mg cp',dci:'Glibenclamide',forme:'cp',unite:'cp',px_achat:20,px_cession:60,stock:100,seuil:20,categorie:'Diabète'},
+  {id:'M036',nom:'Alcool 90° (flacon 250ml)',dci:'—',forme:'flacon',unite:'flacon',px_achat:500,px_cession:800,stock:30,seuil:8,categorie:'Consommable'},
+  {id:'M037',nom:'Eau oxygénée 10vol (250ml)',dci:'—',forme:'flacon',unite:'flacon',px_achat:400,px_cession:700,stock:25,seuil:8,categorie:'Consommable'},
+  {id:'M038',nom:'Compresses stériles 10×10 (boite/10)',dci:'—',forme:'boite',unite:'boite',px_achat:500,px_cession:800,stock:50,seuil:15,categorie:'Consommable'},
+  {id:'M039',nom:'Gants latex M (boite/100)',dci:'—',forme:'boite',unite:'boite',px_achat:3000,px_cession:4500,stock:20,seuil:5,categorie:'Consommable'},
+  {id:'M040',nom:'Seringue 5ml (boite/100)',dci:'—',forme:'boite',unite:'boite',px_achat:4000,px_cession:6000,stock:12,seuil:4,categorie:'Consommable'},
+  {id:'M041',nom:'Perfuseur (unité)',dci:'—',forme:'unité',unite:'pièce',px_achat:300,px_cession:500,stock:50,seuil:10,categorie:'Consommable'},
+  {id:'M042',nom:'Sparadrap (rouleau)',dci:'—',forme:'rouleau',unite:'rouleau',px_achat:500,px_cession:800,stock:20,seuil:5,categorie:'Consommable'},
+];
+
+// Calcul prix CMU = cession × 1.15
+function pxCMU(med){ return Math.round(med.px_cession * 1.15); }
+function pxNA(med){ return Math.round((med.px_na ?? med.px_cession) || 0); }
+
+// ════════════════════════════════════════════════════════
+// CATALOGUE LABO — 40+ actes NGAMB
+// ════════════════════════════════════════════════════════
+const LABO_ACTES = [
+  // Hématologie
+  {code:'BEDA005',nom:'NFS / Hémogramme complet',cat:'Hématologie',cot:29,tube:'EDTA violet'},
+  {code:'BEDA001',nom:'Numération plaquettaire',cat:'Hématologie',cot:15,tube:'EDTA violet'},
+  {code:'BEDC001',nom:'Groupage ABO-Rh(D)',cat:'Hématologie',cot:35,tube:'EDTA violet'},
+  {code:'BEDB004',nom:'Hémostase TP+TCA',cat:'Hématologie',cot:50,tube:'Citrate bleu'},
+  {code:'BEDB003',nom:'INR (anticoagulants)',cat:'Hématologie',cot:30,tube:'Citrate bleu'},
+  {code:'BEDD001',nom:'VS (vitesse sédimentation)',cat:'Hématologie',cot:10,tube:'Citrate bleu'},
+  {code:'BEDB001',nom:'TP seul',cat:'Hématologie',cot:20,tube:'Citrate bleu'},
+  // Biochimie
+  {code:'BNDA008',nom:'Glycémie',cat:'Biochimie',cot:5,tube:'Fluorure gris'},
+  {code:'BNDA009',nom:'HbA1c',cat:'Biochimie',cot:30,tube:'EDTA violet'},
+  {code:'BNDA012',nom:'Urée sanguine',cat:'Biochimie',cot:7,tube:'Sec/gel jaune'},
+  {code:'BNDA013',nom:'Créatinine',cat:'Biochimie',cot:7,tube:'Sec/gel jaune'},
+  {code:'BNDA014',nom:'Urée + Créatinine (bilan rénal)',cat:'Biochimie',cot:14,tube:'Sec/gel jaune'},
+  {code:'BLDA007',nom:'Transaminases ALAT+ASAT',cat:'Biochimie',cot:11,tube:'Sec/gel jaune'},
+  {code:'BLDA005',nom:'ALAT (TGP) seul',cat:'Biochimie',cot:6,tube:'Sec/gel jaune'},
+  {code:'BLDA006',nom:'ASAT (TGO) seul',cat:'Biochimie',cot:6,tube:'Sec/gel jaune'},
+  {code:'BLDB003',nom:'Bilirubine totale + directe',cat:'Biochimie',cot:18,tube:'Sec/gel jaune'},
+  {code:'BLDA004',nom:'Phosphatases alcalines (PAL)',cat:'Biochimie',cot:8,tube:'Sec/gel jaune'},
+  {code:'BLDA008',nom:'GGT (gamma-GT)',cat:'Biochimie',cot:10,tube:'Sec/gel jaune'},
+  {code:'BMDA003',nom:'CRP',cat:'Biochimie',cot:10,tube:'Sec/gel jaune'},
+  {code:'BMDA002',nom:'Protéines totales',cat:'Biochimie',cot:8,tube:'Sec/gel jaune'},
+  {code:'BMDA001',nom:'Albumine',cat:'Biochimie',cot:8,tube:'Sec/gel jaune'},
+  {code:'BNDC001',nom:'Calcium sérique',cat:'Biochimie',cot:8,tube:'Sec/gel jaune'},
+  {code:'BNDC002',nom:'Phosphore sérique',cat:'Biochimie',cot:8,tube:'Sec/gel jaune'},
+  {code:'BNDB002',nom:'Acide urique',cat:'Biochimie',cot:8,tube:'Sec/gel jaune'},
+  {code:'BNDB001',nom:'Cholestérol total',cat:'Biochimie',cot:8,tube:'Sec/gel jaune'},
+  {code:'BNDB003',nom:'Triglycérides',cat:'Biochimie',cot:8,tube:'Sec/gel jaune'},
+  {code:'BNDB005',nom:'Bilan lipidique complet (CT+TG+HDL+LDL)',cat:'Biochimie',cot:40,tube:'Sec/gel jaune'},
+  // Sérologie / Immunologie
+  {code:'BYDZ001',nom:'TDR Paludisme (Pf/Pan)',cat:'Sérologie',cot:30,tube:'Sang total'},
+  {code:'BYDZ004',nom:'TDR AgHBs (Hépatite B)',cat:'Sérologie',cot:30,tube:'Sec/gel jaune'},
+  {code:'BGDE071',nom:'TDR VIH 1&2',cat:'Sérologie',cot:52,tube:'Sang total'},
+  {code:'BGDC019',nom:'Widal (typhoïde)',cat:'Sérologie',cot:40,tube:'Sec/gel jaune'},
+  {code:'BGDC022',nom:'VDRL (syphilis)',cat:'Sérologie',cot:20,tube:'Sec/gel jaune'},
+  {code:'BGDE083',nom:'TDR COVID-19 Ag',cat:'Sérologie',cot:40,tube:'Écouvillon'},
+  {code:'BGDD001',nom:'Test de grossesse (β-hCG qualitatif)',cat:'Sérologie',cot:20,tube:'Urine/sang'},
+  {code:'BGDD002',nom:'Test de grossesse quantitatif (β-hCG)',cat:'Sérologie',cot:40,tube:'Sec/gel jaune'},
+  // Bactériologie / Parasitologie
+  {code:'BFDA001',nom:'ECBU (examen cytobactériologique urine)',cat:'Bactériologie',cot:65,tube:'Flacon ECBU'},
+  {code:'BFDC011',nom:'BK microscopie directe (crachat)',cat:'Bactériologie',cot:30,tube:'Pot crachat'},
+  {code:'BFDB001',nom:'Hémoculture (1 flacon)',cat:'Bactériologie',cot:80,tube:'Flacon hémo'},
+  {code:'BFDB004',nom:'Coproculture',cat:'Bactériologie',cot:60,tube:'Pot selles'},
+  {code:'BFDB005',nom:'Examen parasitologique selles (EPS)',cat:'Parasitologie',cot:30,tube:'Pot selles'},
+  {code:'BFDB006',nom:'Goutte épaisse / frottis (paludisme)',cat:'Parasitologie',cot:25,tube:'Lame sang'},
+  {code:'BFDB007',nom:'GE + frottis + TDR Palu',cat:'Parasitologie',cot:50,tube:'Lame + sang total'},
+];
+
+// SOINS INFIRMIERS (AMI)
+const SOINS_ACTES = [
+  {code:'TEDY001',nom:'Prélèvement veineux',cat:'Prélèvement',cot:5,amtFPM:0,unite:'AMI'},
+  {code:'TETY005',nom:'Injection intramusculaire (IM)',cat:'Injection',cot:1,amtFPM:0,unite:'AMI'},
+  {code:'TETY006',nom:'Injection intraveineuse directe (IVD)',cat:'Injection',cot:2,amtFPM:0,unite:'AMI'},
+  {code:'TETY012',nom:'Perfusion IV (montage + surveillance)',cat:'Perfusion',cot:12,amtFPM:0,unite:'AMI'},
+  {code:'TETY013',nom:'Perfusion IV 2ème flacon',cat:'Perfusion',cot:8,amtFPM:0,unite:'AMI'},
+  {code:'TEZZ001',nom:'Pansement simple',cat:'Pansement',cot:5,amtFPM:0,unite:'AMI'},
+  {code:'TEZZ002',nom:'Pansement complexe (plaie large/brûlure)',cat:'Pansement',cot:15,amtFPM:0,unite:'AMI'},
+  {code:'TEZZ003',nom:'Suture (par point) — max 5 pts',cat:'Suture',cot:30,amtFPM:0,unite:'AMI'},
+  {code:'TEZZ004',nom:'Suture (>5 points)',cat:'Suture',cot:50,amtFPM:0,unite:'AMI'},
+  {code:'TEZZ005',nom:'Ablation de points de suture',cat:'Soins',cot:5,amtFPM:0,unite:'AMI'},
+  {code:'TEZZ006',nom:'Nettoyage et détersion de plaie',cat:'Soins',cot:8,amtFPM:0,unite:'AMI'},
+  {code:'TEZZ007',nom:'Pose d\'attelle plâtrée',cat:'Immobilisation',cot:50,amtFPM:0,unite:'AMI'},
+  {code:'TEZZ008',nom:'Pose de sonde urinaire (sondage)',cat:'Sondage',cot:30,amtFPM:0,unite:'AMI'},
+  {code:'TEZZ009',nom:'Lavement / évacuation intestinale',cat:'Soins',cot:15,amtFPM:0,unite:'AMI'},
+  {code:'TEZZ010',nom:'Mesure constantes (TA+T°+Pouls)',cat:'Surveillance',cot:2,amtFPM:0,unite:'AMI'},
+  {code:'TEZZ011',nom:'Nébulisation / aérosol',cat:'Resp.',cot:10,amtFPM:0,unite:'AMI'},
+  {code:'TEZZ012',nom:'Pose de voie veineuse périphérique',cat:'Perfusion',cot:15,amtFPM:0,unite:'AMI'},
+  {code:'TEZZ013',nom:'Bandelette urinaire (BU)',cat:'Analyse',cot:5,amtFPM:0,unite:'AMI'},
+  {code:'TEZZ014',nom:'Glycémie capillaire (dextro)',cat:'Analyse',cot:3,amtFPM:0,unite:'AMI'},
+  {code:'TEZZ015',nom:'Mise en observation / surveillance 24h',cat:'Observation',cot:0,amtFPM:0,unite:'FORFAIT'},
+];
+
+// ════════════════════════════════════════════════════════
+// STOCKAGE LOCAL
+// ════════════════════════════════════════════════════════
+const DB = {
+  get:(k)=>{ try{return JSON.parse(localStorage.getItem('csa2_'+k)||'[]');}catch{return[];} },
+  set:(k,v)=>{ localStorage.setItem('csa2_'+k,JSON.stringify(v)); },
+  push:(k,item)=>{
+    const arr=DB.get(k);
+    item.id=item.id||Date.now()+'_'+Math.random().toString(36).substr(2,5);
+    item.created_at=item.created_at||new Date().toISOString();
+    item.agent_id=CURRENT_AGENT?.id||'?';
+    item.agent_nom=CURRENT_AGENT?.nom||'?';
+    item.synced=false;
+    arr.unshift(item);
+    DB.set(k,arr.slice(0,3000));
+    SYNC_Q.push({table:k,item});
+    localStorage.setItem('csa2_sq',JSON.stringify(SYNC_Q.slice(-500)));
+    if(IS_ONLINE&&supa) syncQueue();
+    return item;
+  },
+  today:()=>new Date().toISOString().slice(0,10),
+  todayItems:(k)=>DB.get(k).filter(i=>i.created_at&&i.created_at.startsWith(DB.today())),
+  getStock:()=>{
+    const saved=localStorage.getItem('csa2_stock');
+    if(saved) try{
+      return JSON.parse(saved).map(m=>({...m,px_na:(m.px_na??m.px_cession)}));
+    }catch{}
+    const s=MEDS_DEFAULT.map(m=>({...m,px_na:m.px_cession}));
+    localStorage.setItem('csa2_stock',JSON.stringify(s));
+    return s;
+  },
+  setStock:(s)=>localStorage.setItem('csa2_stock',JSON.stringify(s)),
+};
+
+// ════════════════════════════════════════════════════════
+// AUTH & SESSION
+// ════════════════════════════════════════════════════════
+let CURRENT_AGENT = null;
+let selectedAgent = null;
+let pinBuffer = '';
+let COMPACT_MODE = localStorage.getItem('csa2_compact')==='1';
+
+const MODULE_TABS = {
+  accueil:['acc-reception','acc-constantes','acc-consultation','acc-liste'],
+  soins:  ['acc-consultation','soins-actes','soins-obs','soins-liste'],
+  labo:   ['labo-saisie','labo-resultats','labo-feuilles'],
+  pharmacie:['pha-vente','pha-stock','pha-tableau'],
+  compta: ['cpt-caisse','cpt-cloture','cpt-rapports'],
+  chef:   ['chef-dashboard','acc-consultation','chef-patients','chef-dossier','chef-alertes','chef-mensuel','chef-prix','chef-audit','chef-exports'],
+};
+const TAB_LABELS = {
+  'acc-reception':'Accueil patient','acc-constantes':'Constantes','acc-consultation':'Consultation','acc-liste':'File du jour',
+  'soins-actes':'Réaliser soins','soins-obs':'Observation','soins-liste':'Soins du jour',
+  'labo-saisie':'Saisie actes','labo-resultats':'Résultats','labo-feuilles':'Feuilles CMU',
+  'pha-vente':'Délivrance','pha-stock':'Stock','pha-tableau':'Tableau de bord',
+  'cpt-caisse':'Caisse du jour','cpt-cloture':'Clôture','cpt-rapports':'Rapports',
+  'chef-dashboard':'Tableau de bord','chef-alertes':'Alertes','chef-patients':'Dossiers patients','chef-dossier':'Dossier complet','chef-mensuel':'Statistiques','chef-prix':'Gestion prix','chef-audit':'Traçabilité','chef-exports':'Exports',
+};
+
+function buildAgentList(){
+  const el=document.getElementById('agent-list');
+  el.innerHTML=AGENTS.map(a=>`
+    <button class="agent-btn" onclick="selectAgent('${a.id}')">
+      <div class="agent-avatar" style="background:${a.color}22;color:${a.color}">${a.nom[0]}</div>
+      <div><div class="agent-name">${a.nom}</div><div class="agent-role">${a.role}</div></div>
+      ${a.isChef?'<span style="font-size:9px;background:#FFD700;color:#333;padding:1px 6px;border-radius:8px;font-weight:700">CHEF</span>':''}
+    </button>`).join('');
+}
+
+function selectAgent(id){
+  selectedAgent=AGENTS.find(a=>a.id===id);
+  pinBuffer='';
+  document.getElementById('auth-step1').style.display='none';
+  document.getElementById('auth-step2').style.display='block';
+  document.getElementById('auth-selected-name').textContent=selectedAgent.nom+' — '+selectedAgent.role;
+  updatePinDots();
+  document.getElementById('pin-error').textContent='';
+}
+function pinBackToList(){
+  document.getElementById('auth-step1').style.display='block';
+  document.getElementById('auth-step2').style.display='none';
+  selectedAgent=null; pinBuffer='';
+}
+function pinKey(k){
+  if(k==='back'){pinBuffer=pinBuffer.slice(0,-1);}
+  else if(pinBuffer.length<4){pinBuffer+=k;}
+  updatePinDots();
+  if(pinBuffer.length===4) setTimeout(()=>checkPin(),100);
+}
+function updatePinDots(){
+  for(let i=0;i<4;i++){
+    const d=document.getElementById('pd'+i);
+    if(d) d.classList.toggle('filled',i<pinBuffer.length);
+  }
+}
+function checkPin(){
+  // Médecin-Chef peut modifier son PIN via les paramètres
+  const storedPin=localStorage.getItem('csa2_pin_'+selectedAgent.id)||selectedAgent.pin;
+  if(pinBuffer===storedPin){
+    CURRENT_AGENT=selectedAgent;
+    startApp();
+  } else {
+    document.getElementById('pin-error').textContent='Code incorrect. Réessayez.';
+    pinBuffer='';
+    setTimeout(()=>{updatePinDots();document.getElementById('pin-error').textContent='';},1000);
+  }
+}
+function startApp(){
+  document.getElementById('auth-screen').style.display='none';
+  document.getElementById('app').style.display='flex';
+  document.getElementById('mod-title').textContent=CURRENT_AGENT.role;
+  document.getElementById('agent-chip').textContent=CURRENT_AGENT.nom;
+  ensurePatientDossiers();
+  buildNav(MODULE_TABS[CURRENT_AGENT.module]);
+  showView(MODULE_TABS[CURRENT_AGENT.module][0]);
+  updateSyncStatus();
+}
+function logout(){
+  CURRENT_AGENT=null; selectedAgent=null; pinBuffer='';
+  document.getElementById('app').style.display='none';
+  document.getElementById('auth-screen').style.display='flex';
+  document.getElementById('auth-step1').style.display='block';
+  document.getElementById('auth-step2').style.display='none';
+}
+function buildNav(tabs){
+  const rejetsToday = DB.todayItems('audit_logs').filter(l=>l.action==='CLOTURE_REJETEE').length;
+  const cloturesToday = DB.todayItems('clotures');
+  const excedentsToday = cloturesToday.filter(c=>(c.ecart||0)>0).length;
+  document.getElementById('mod-nav').innerHTML=tabs.map(t=>`
+    <button class="mod-tab" data-tab="${t}" onclick="showView('${t}')">${TAB_LABELS[t]||t}${t==='chef-audit'&&rejetsToday>0?` <span class="badge b-err" style="margin-left:6px" title="Rejets clôture du jour">${rejetsToday}</span>`:''}${t==='cpt-cloture'&&excedentsToday>0?` <span class="badge b-warn" style="margin-left:6px" title="Clôtures avec excédent du jour">+${excedentsToday}</span>`:''}</button>`).join('');
+}
+function showView(id){
+  if(CURRENT_AGENT?.module==='chef'){
+    buildNav(MODULE_TABS.chef);
+  }
+  document.querySelectorAll('.mod-tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===id));
+  const c=document.getElementById('content');
+  c.dataset.view=id;
+  c.innerHTML='';
+  const v=document.createElement('div');
+  c.appendChild(v);
+  VIEW[id]?.(v);
+}
+
+// ════════════════════════════════════════════════════════
+// UTILITAIRES
+// ════════════════════════════════════════════════════════
+const fmt=(n,d=0)=>Math.round(n||0).toLocaleString('fr-FR',{minimumFractionDigits:d,maximumFractionDigits:d});
+const fmtD=(d)=>new Date(d).toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric'});
+const fmtT=(d)=>new Date(d).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+const today=()=>new Date().toISOString().slice(0,10);
+const uid=()=>Date.now()+'_'+Math.random().toString(36).substr(2,5);
+const badge=(s,map={FPM:'b-fpm',CMU:'b-cmu',NA:'b-na',STAGE:'b-stage',OK:'b-ok',WARN:'b-warn',ERR:'b-err'})=>`<span class="badge ${map[s]||'b-ok'}">${s}</span>`;
+const escHtml=(s)=>String(s??'').replace(/[&<>"']/g,(c)=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function getCurrentYYMM(){
+  const d=new Date();
+  return String(d.getFullYear()).slice(-2)+String(d.getMonth()+1).padStart(2,'0');
+}
+function generatePatientDossier(){
+  const yymm=getCurrentYYMM();
+  const prefix='CSA-'+yymm+'-';
+  const patients=DB.get('patients');
+  const sameMonth=patients.filter(p=>{
+    if(typeof p.dossier_no==='string'&&p.dossier_no.startsWith(prefix)) return true;
+    return p.created_at&&p.created_at.startsWith(new Date().toISOString().slice(0,7));
+  }).length;
+  return prefix+String(sameMonth+1).padStart(5,'0');
+}
+function buildDossierForDate(d,seq){
+  const dt=d?new Date(d):new Date();
+  const yymm=String(dt.getFullYear()).slice(-2)+String(dt.getMonth()+1).padStart(2,'0');
+  return `CSA-${yymm}-${String(seq).padStart(5,'0')}`;
+}
+function ensurePatientDossiers(){
+  const patients=DB.get('patients');
+  if(!patients.length) return;
+  const byMonth={};
+  [...patients].sort((a,b)=>String(a.created_at||'').localeCompare(String(b.created_at||''))).forEach(p=>{
+    if(p.dossier_no) return;
+    const dt=p.created_at||new Date().toISOString();
+    const m=dt.slice(2,4)+dt.slice(5,7);
+    byMonth[m]=(byMonth[m]||0)+1;
+    p.dossier_no=buildDossierForDate(dt,byMonth[m]);
+  });
+  DB.set('patients',patients);
+}
+function getPatientById(id){
+  return DB.get('patients').find(p=>p.id===id)||null;
+}
+function logAudit(action,details={}){
+  DB.push('audit_logs',{
+    action,
+    details,
+    module:CURRENT_AGENT?.module||'?',
+    role:CURRENT_AGENT?.role||'?',
+    date:today(),
+    heure:new Date().toLocaleTimeString('fr-FR')
+  });
+}
+function escSQ(v){
+  return String(v||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+}
+function getBillingStatut(patient){
+  const base=(patient?.statut_simple||patient?.statut||'NA');
+  const droits=String(patient?.droits_verifies??'1');
+  return droits==='1'?base:'NA';
+}
+function getEffectiveBillingStatut(patientId,selectedStatut){
+  const p=patientId?getPatientById(patientId):null;
+  return p?getBillingStatut(p):(selectedStatut||'NA');
+}
+function getLatestConstantes(patientId){
+  return DB.get('constantes').find(c=>c.patient_id===patientId)||null;
+}
+function getAlertFlags(c){
+  if(!c) return [];
+  const flags=[];
+  const temp=parseFloat(c.temperature||0);
+  const spo2=parseFloat(c.spo2||0);
+  const imc=parseFloat(c.imc||0);
+  const ta=String(c.ta||'').match(/(\d{2,3})\s*\/\s*(\d{2,3})/);
+  if(temp>=38) flags.push({lvl:'err',msg:`T° ${temp}°C`});
+  if(spo2>0&&spo2<94) flags.push({lvl:'err',msg:`SpO2 ${spo2}%`});
+  if(imc>=30) flags.push({lvl:'err',msg:`IMC ${imc.toFixed(1)} (obésité)`});
+  else if(imc>=25) flags.push({lvl:'warn',msg:`IMC ${imc.toFixed(1)} (surpoids)`});
+  if(ta){
+    const sys=+ta[1],dia=+ta[2];
+    if(sys>=140||dia>=90) flags.push({lvl:'warn',msg:`TA ${sys}/${dia}`});
+  }
+  return flags;
+}
+function alertBadge(flag){
+  return `<span class="badge ${flag.lvl==='err'?'b-err':'b-warn'}">${flag.msg}</span>`;
+}
+function getCriticalTodayPatients(){
+  const pts=DB.todayItems('patients');
+  return pts.map(p=>{
+    const c=getLatestConstantes(p.id);
+    const flags=getAlertFlags(c);
+    const critical=flags.filter(f=>f.lvl==='err');
+    return {patient:p,constantes:c,flags,critical};
+  }).filter(x=>x.critical.length>0);
+}
+function renderCriticalBanner(module){
+  const crit=getCriticalTodayPatients();
+  if(!crit.length) return '';
+  const rows=crit.slice(0,6).map(x=>`<div style="font-size:11px;padding:4px 0;border-bottom:1px dashed #f3c2c2">
+    <strong>${escHtml(x.patient.nom)}</strong> — ${x.critical.map(c=>escHtml(c.msg)).join(' | ')}
+  </div>`).join('');
+  return `<div class="al al-err">
+    <strong>🚨 Patients critiques du jour (${crit.length})</strong> — module ${escHtml(module)}
+    <div style="margin-top:6px">${rows}</div>
+  </div>`;
+}
+function renderClinicalSummary(patientId){
+  const p=getPatientById(patientId);
+  if(!p) return '';
+  const lastConst=getLatestConstantes(patientId);
+  const flags=getAlertFlags(lastConst);
+  const consultations=DB.get('consultations').filter(c=>c.patient_id===patientId).slice(0,5);
+  const prestataires=[...new Set(consultations.map(c=>c.agent_nom).filter(Boolean))];
+  const hist=consultations.map(c=>`${fmtD(c.created_at)} - ${c.type} (${c.agent_nom||'?'})`).join(' | ');
+  return `<div class="fs" style="margin-top:8px">
+    <div class="fs-title" style="color:var(--bleu)">Dossier clinique rapide</div>
+    <div style="font-size:11px;margin-bottom:6px"><strong>Antécédents :</strong> ${escHtml(p.antecedents||'Non renseignés')}</div>
+    <div style="font-size:11px;margin-bottom:6px"><strong>Prestataires antérieurs :</strong> ${prestataires.length?escHtml(prestataires.join(', ')):'—'}</div>
+    <div style="font-size:11px;margin-bottom:6px"><strong>Anciennes consultations :</strong> ${hist?escHtml(hist):'—'}</div>
+    <div style="font-size:11px;margin-bottom:6px"><strong>Dernières constantes :</strong> ${lastConst?`${lastConst.temperature||'—'}°C | TA ${escHtml(lastConst.ta||'—')} | SpO2 ${lastConst.spo2||'—'}% | IMC ${lastConst.imc||'—'}`:'Non disponibles'}</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">${flags.length?flags.map(alertBadge).join(''):'<span class="badge b-ok">Aucune alerte vitale</span>'}</div>
+  </div>`;
+}
+function getOrientedPatients(serviceCode){
+  const consultations=DB.get('consultations');
+  const byPatient=new Map();
+  consultations.forEach(c=>{
+    if(!(c.orientations||[]).includes(serviceCode)) return;
+    if(!byPatient.has(c.patient_id)) byPatient.set(c.patient_id,c);
+  });
+  return Array.from(byPatient.values());
+}
+
+let chartInst={};
+function mkChart(id,type,labels,datasets){
+  const ctx=document.getElementById(id);
+  if(!ctx)return;
+  if(typeof Chart==='undefined'){
+    const host=ctx.parentElement||ctx;
+    if(!host.querySelector('.chart-offline-msg')){
+      host.insertAdjacentHTML('beforeend','<div class="al al-info chart-offline-msg" style="margin-top:8px">Graphique indisponible hors ligne (bibliotheque Chart.js absente).</div>');
+    }
+    return;
+  }
+  if(chartInst[id]){chartInst[id].destroy();}
+  chartInst[id]=new Chart(ctx.getContext('2d'),{
+    type,data:{labels,datasets},
+    options:{responsive:true,maintainAspectRatio:true,
+      plugins:{legend:{position:'bottom',labels:{font:{size:10},boxWidth:10}}},
+      scales:type!=='doughnut'&&type!=='pie'?{y:{ticks:{callback:v=>fmt(v/1000)+'k',font:{size:9}},grid:{color:'#f0f0f0'}},x:{ticks:{font:{size:9}}}}:undefined}
+  });
+}
+
+function printSection(id){
+  const el=document.getElementById(id);
+  if(!el)return;
+  const w=window.open('','_blank');
+  const logo = INSTITUTION_LOGO_URL ? `<div style="text-align:center;margin-bottom:8px"><img src="${INSTITUTION_LOGO_URL}" style="width:34px;height:34px;object-fit:contain" onerror="this.style.display='none'"></div>` : '';
+  w.document.write(`<html><head><title>Impression CSA</title>
+    <style>body{font-family:Arial,sans-serif;font-size:12px;} table{width:100%;border-collapse:collapse;} th{background:#0D2B45;color:white;padding:6px;} td{padding:5px;border:1px solid #ddd;} .recu{max-width:300px;margin:0 auto;} @media print{button{display:none}}</style>
+    </head><body>${logo}${el.innerHTML}<script>window.print();<\/script></body></html>`);
+  w.document.close();
+}
+
+// IMC auto
+function calcIMC(){
+  const p=parseFloat(document.getElementById('const-poids')?.value)||0;
+  const t=parseFloat(document.getElementById('const-taille')?.value)/100||0;
+  const el=document.getElementById('imc-display');
+  if(!el||p<=0||t<=0){if(el)el.innerHTML='—';return;}
+  const imc=p/(t*t);
+  let lbl='',cl='';
+  if(imc<18.5){lbl='Insuffisance pondérale';cl='background:#e3f2fd;color:#1565C0';}
+  else if(imc<25){lbl='Poids normal ✓';cl='background:#e8f5e9;color:#2E7D32';}
+  else if(imc<30){lbl='Surpoids';cl='background:#FFF8E1;color:#B8860B';}
+  else{lbl='Obésité';cl='background:#ffebee;color:#C62828';}
+  el.innerHTML=`<strong>${imc.toFixed(1)}</strong> <span class="imc-pill" style="${cl}">${lbl}</span>`;
+}
+
+// ════════════════════════════════════════════════════════
+// VIEWS
+// ════════════════════════════════════════════════════════
+const VIEW = {};
+
+// ── ACCUEIL — Réception patient ──────────────────────────
+VIEW['acc-reception'] = (el) => {
+  el.innerHTML=`
+  <div class="g2">
+    <div class="card">
+      <div class="card-title">Nouveau patient — Bâtiment <span id="bldg-label" style="color:var(--marine)">${CURRENT_AGENT.bldg||'SOUS-PREFECTURE'}</span></div>
+      <div class="fs">
+        <div class="fs-title" style="color:var(--marine)">Identité</div>
+        <div class="fr"><label>Nom & Prénom *</label><input type="text" id="p-nom" placeholder="Ex: KOUAME Jean"></div>
+        <div class="fr"><label>Date de naissance</label><input type="date" id="p-ddn"></div>
+        <div class="fr"><label>Genre</label><select id="p-genre"><option>M</option><option>F</option></select></div>
+        <div class="fr"><label>Contact / Tél.</label><input type="text" id="p-tel" placeholder="07XXXXXXXX"></div>
+        <div class="fr"><label>Adresse</label><input type="text" id="p-adr" placeholder="Quartier, ville"></div>
+      </div>
+      <div class="fs">
+        <div class="fs-title" style="color:var(--fpm)">Régime & Droits</div>
+        <div class="fr"><label>Statut *</label>
+          <select id="p-statut" onchange="onStatutChange()">
+            <option value="FPM_TIT">FPM — Titulaire militaire</option>
+            <option value="FPM_AD">FPM — Ayant-droit (famille)</option>
+            <option value="CMU">Assuré CMU</option>
+            <option value="NA">Non-assuré</option>
+          </select></div>
+        <div id="fpm-section">
+          <div class="fr"><label>N° carte FPM</label><input type="text" id="p-fpm" placeholder="FPM-XXXXXXXX"></div>
+          <div class="fr" id="p-lien-wrap"><label>Lien avec le titulaire</label><input type="text" id="p-lien" placeholder="Ex: Épouse, enfant..."></div>
+          <div class="fr"><label>Dispose d'une carte CMU ?</label><select id="p-cmu-dispo"><option value="1">Oui</option><option value="0">Non</option></select></div>
+        </div>
+        <div id="cmu-section" style="display:none">
+          <div class="fr"><label>N° carte CMU</label><input type="text" id="p-cmu" placeholder="CMU-XXXXXXXXX"></div>
+        </div>
+        <div class="fr"><label>Droits vérifiés</label>
+          <select id="p-droits"><option value="1">✅ Vérifiés et valides</option><option value="0">⚠️ Non vérifiés / expirés</option></select></div>
+      </div>
+      <div class="fs">
+        <div class="fs-title" style="color:var(--or)">Ventes à l'accueil</div>
+        <div class="fr"><label>Carnet de santé <span class="tb tb-na">1 000 F</span></label>
+          <select id="p-carnet" onchange="updateAccueilTotal()"><option value="0">Non</option><option value="1">Oui (+1 000 F)</option></select></div>
+        <div class="fr"><label>Thermomètre <span class="tb tb-na">1 000 F</span></label>
+          <select id="p-thermo" onchange="updateAccueilTotal()"><option value="0">Non</option><option value="1">Oui (+1 000 F)</option></select></div>
+      </div>
+      <div class="tl"><span>Frais d'accueil</span><strong id="acc-total-lbl">0 FCFA</strong></div>
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="savePatient()">Enregistrer + Générer reçu</button>
+        <button class="btn btn-danger btn-sm" onclick="clearAccueil()">Effacer</button>
+      </div>
+    </div>
+    <div id="acc-recu-zone"></div>
+  </div>`;
+  onStatutChange();
+};
+
+function onStatutChange(){
+  const s=document.getElementById('p-statut')?.value;
+  if(!s)return;
+  const isFPM=s.startsWith('FPM');
+  document.getElementById('fpm-section').style.display=isFPM?'block':'none';
+  document.getElementById('cmu-section').style.display=s==='CMU'?'block':'none';
+  const lw=document.getElementById('p-lien-wrap');
+  if(lw) lw.style.display=s==='FPM_AD'?'flex':'none';
+  updateAccueilTotal();
+}
+function updateAccueilTotal(){
+  const c=+document.getElementById('p-carnet')?.value||0;
+  const t=+document.getElementById('p-thermo')?.value||0;
+  const el=document.getElementById('acc-total-lbl');
+  if(el) el.textContent=fmt((c+t)*1000)+' FCFA';
+}
+
+function savePatient(){
+  const nom=document.getElementById('p-nom').value.trim();
+  if(!nom){alert('Le nom est obligatoire');return;}
+  const statut=document.getElementById('p-statut').value;
+  const carnet=+document.getElementById('p-carnet').value;
+  const thermo=+document.getElementById('p-thermo').value;
+  const ventes=(carnet+thermo)*1000;
+  const statutSimple=statut.startsWith('FPM')?'FPM':statut;
+  const droitsVerifies=document.getElementById('p-droits').value;
+  const statutFacturation=droitsVerifies==='1'?statutSimple:'NA';
+  const dossierNo=generatePatientDossier();
+  const p=DB.push('patients',{
+    nom,ddn:document.getElementById('p-ddn').value,
+    genre:document.getElementById('p-genre').value,
+    tel:document.getElementById('p-tel').value,
+    adresse:document.getElementById('p-adr').value,
+    statut,statut_simple:statutSimple,
+    fpm_num:document.getElementById('p-fpm')?.value||'',
+    lien_titulaire:document.getElementById('p-lien')?.value||'',
+    cmu_num:document.getElementById('p-cmu')?.value||'',
+    droits_verifies:droitsVerifies,
+    cmu_disponible:document.getElementById('p-cmu-dispo')?.value||'0',
+    antecedents:'',
+    dossier_no:dossierNo,
+    carnet,thermo,ventes_accueil:ventes,
+    batiment:CURRENT_AGENT.bldg||'SOUS-PREFECTURE',date:today()
+  });
+  logAudit('PATIENT_CREATE',{patient_id:p.id,dossier_no:p.dossier_no,nom:p.nom,statut:p.statut_simple||p.statut});
+  if(ventes>0) DB.push('transactions',{
+    patient_id:p.id,patient_nom:nom,statut:statutSimple,service:'ACCUEIL',
+    designation:'Ventes accueil',montant:ventes,cnam:0,encaisse:ventes,date:today()
+  });
+  const now=new Date();
+  // Date expiration ticket (validité 7 jours)
+  const expDate=new Date(now); expDate.setDate(expDate.getDate()+7);
+  const expStr=expDate.toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric'});
+  // Tarif consultation selon statut
+  const tarifConsult = statutFacturation==='FPM'?0 : statutFacturation==='CMU'?150 : 1000;
+  const tarifConsultLabel = tarifConsult===0
+    ? '<span style="color:var(--fpm);font-weight:800">GRATUIT (FPM)</span>'
+    : `<span style="color:var(--marine);font-weight:800">${fmt(tarifConsult)} FCFA</span>`;
+  const totalAccueil = ventes + tarifConsult;
+  document.getElementById('acc-recu-zone').innerHTML=`
+  <div>
+    <div class="al al-ok"><strong>✅ Patient enregistré — Dossier N°${p.dossier_no}</strong> | Agent : ${CURRENT_AGENT.nom}</div>
+    <div class="card" id="recu-print-${p.id}">
+      <div class="card-title">Reçu d'accueil — À imprimer</div>
+      <div class="recu">
+        <div class="recu-title">REÇU D'ACCUEIL</div>
+        <div style="text-align:center;font-size:11px;font-weight:700;color:var(--marine)">CSA — GARDE RÉPUBLICAINE DU PLATEAU</div>
+        <div style="text-align:center;font-size:10px;color:#888;margin-bottom:4px">${now.toLocaleString('fr-FR')} | Bât. ${p.batiment}</div>
+        <div style="text-align:center;font-size:10px;margin-bottom:6px">Dossier N° <strong>${p.dossier_no}</strong> | Agent : ${CURRENT_AGENT.nom}</div>
+        <hr style="margin:6px 0">
+        <div class="recu-line"><span>Patient</span><span><strong>${nom}</strong></span></div>
+        <div class="recu-line"><span>Statut</span><span>${badge(statutSimple)}</span></div>
+        <div class="recu-line"><span>Statut facturation</span><span>${badge(statutFacturation)}</span></div>
+        <div class="recu-line"><span>Droits vérifiés</span><span>${p.droits_verifies==='1'?'✅ Valides':'⚠️ À vérifier'}</span></div>
+        ${p.statut.startsWith('FPM')?`<div class="recu-line"><span>Carte CMU disponible</span><span>${p.cmu_disponible==='1'?'Oui':'Non'}</span></div>`:''}
+        <hr style="margin:6px 0;border-style:dashed">
+        <div style="font-size:10px;font-weight:700;color:var(--marine);margin-bottom:4px;text-transform:uppercase">Détail facturation</div>
+        <div class="recu-line"><span>Consultation</span><span>${tarifConsultLabel}</span></div>
+        ${carnet?`<div class="recu-line"><span>Carnet de santé</span><span>1 000 FCFA</span></div>`:''}
+        ${thermo?`<div class="recu-line"><span>Thermomètre</span><span>1 000 FCFA</span></div>`:''}
+        <hr style="margin:6px 0">
+        <div class="recu-tot"><span>TOTAL À ENCAISSER</span><span style="font-size:16px">${totalAccueil===0?'<span style="color:var(--fpm)">0 FCFA</span>':fmt(totalAccueil)+' FCFA'}</span></div>
+        <div style="margin-top:8px;background:#f0f4ff;border-radius:4px;padding:6px;text-align:center;border:1px dashed var(--bleu)">
+          <div style="font-size:10px;color:var(--muted)">⏱ VALIDITÉ DU TICKET DE CONSULTATION</div>
+          <div style="font-size:12px;font-weight:700;color:var(--bleu)">Valable jusqu'au <strong>${expStr}</strong></div>
+          <div style="font-size:9px;color:var(--muted);margin-top:2px">7 jours maximum à compter de ce jour</div>
+        </div>
+      </div>
+      <div class="btn-row no-print">
+        <button class="btn btn-print btn-sm" onclick="printSection('recu-print-${p.id}')">🖨 Imprimer ce reçu</button>
+      </div>
+    </div>
+  </div>`;
+  clearAccueil();
+}
+function clearAccueil(){
+  ['p-nom','p-ddn','p-tel','p-adr','p-fpm','p-lien','p-cmu'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
+  const s=document.getElementById('p-statut');if(s)s.value='FPM_TIT';
+  const c=document.getElementById('p-carnet');if(c)c.value='0';
+  const t=document.getElementById('p-thermo');if(t)t.value='0';
+  const cd=document.getElementById('p-cmu-dispo');if(cd)cd.value='1';
+  const dr=document.getElementById('p-droits');if(dr)dr.value='1';
+  onStatutChange();
+  updateAccueilTotal();
+}
+
+// ── ACCUEIL — Prise de constantes ────────────────────────
+VIEW['acc-constantes'] = (el) => {
+  const patients=DB.get('patients');
+  el.innerHTML=`
+  <div class="g2">
+    <div class="card">
+      <div class="card-title">Prise des constantes vitales</div>
+      <div class="sb"><input type="text" id="cs-search" placeholder="Rechercher patient du jour..." oninput="searchPatientCS()"></div>
+      <div id="cs-results" style="max-height:150px;overflow-y:auto"></div>
+      <input type="hidden" id="cs-pid"><input type="hidden" id="cs-pnom">
+      <div id="cs-selected" style="display:none">
+        <div class="al al-info"><strong id="cs-pnom-lbl"></strong></div>
+        <div class="fs">
+          <div class="fs-title">Anthropométrie</div>
+          <div class="fr"><label>Poids (kg)</label><input type="number" id="const-poids" step="0.1" min="1" placeholder="Ex: 72.5" oninput="calcIMC()"></div>
+          <div class="fr"><label>Taille (cm)</label><input type="number" id="const-taille" step="0.5" min="50" placeholder="Ex: 175" oninput="calcIMC()"></div>
+          <div class="fr"><label>IMC calculé</label><div id="imc-display" style="flex:1;font-size:13px">—</div></div>
+        </div>
+        <div class="fs">
+          <div class="fs-title">Constantes vitales</div>
+          <div class="fr"><label>Tension artérielle (mmHg)</label>
+            <input type="text" id="const-ta" placeholder="Ex: 130/85 mmHg" style="flex:1"></div>
+          <div class="fr"><label>Température (°C)</label>
+            <input type="number" id="const-temp" step="0.1" min="34" max="43" placeholder="Ex: 37.5" oninput="alertTemp()"></div>
+          <div id="temp-alert"></div>
+          <div class="fr"><label>Pouls (bpm)</label>
+            <input type="number" id="const-pouls" min="30" max="250" placeholder="Ex: 78"></div>
+          <div class="fr"><label>SpO2 (%)</label>
+            <input type="number" id="const-spo2" min="50" max="100" placeholder="Ex: 98"></div>
+          <div class="fr"><label>Motif de consultation</label>
+            <textarea id="const-motif" placeholder="Ex: Fièvre depuis 3 jours, céphalées..."></textarea></div>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="saveConstantes()">Enregistrer constantes</button>
+        </div>
+      </div>
+    </div>
+    <div id="const-confirm"></div>
+  </div>`;
+};
+
+function searchPatientCS(){
+  const q=document.getElementById('cs-search').value.toLowerCase();
+  const res=document.getElementById('cs-results');
+  if(q.length<2){res.innerHTML='';return;}
+  const found=DB.get('patients').filter(p=>p.nom.toLowerCase().includes(q)&&p.date===today()).slice(0,5);
+  res.innerHTML=found.map(p=>`
+    <div class="pat-card" onclick="selectPatientCS('${p.id}','${p.nom}','${p.statut_simple}')">
+      <div class="pat-av" style="background:#e3f2fd;color:var(--cmu)">${p.nom[0]}</div>
+      <div style="flex:1"><div style="font-weight:700;font-size:12px">${p.nom}</div>
+        <div style="font-size:10px;color:var(--muted)">${p.genre||''} — Bât. ${p.batiment}</div></div>
+      ${badge(p.statut_simple||p.statut)}
+    </div>`).join('')||'<p style="color:#aaa;text-align:center;padding:8px">Aucun patient trouvé aujourd\'hui</p>';
+}
+
+function selectPatientCS(id,nom,statut){
+  document.getElementById('cs-pid').value=id;
+  document.getElementById('cs-pnom').value=nom;
+  document.getElementById('cs-pnom-lbl').textContent=nom+' ('+statut+')';
+  document.getElementById('cs-selected').style.display='block';
+  document.getElementById('cs-search').value='';
+  document.getElementById('cs-results').innerHTML='';
+}
+
+function alertTemp(){
+  const t=parseFloat(document.getElementById('const-temp')?.value)||0;
+  const el=document.getElementById('temp-alert');
+  if(!el)return;
+  if(t>=40) el.innerHTML='<div class="al al-err">⚠️ Hyperthermie sévère (≥40°C) — Signaler immédiatement au médecin</div>';
+  else if(t>=38.5) el.innerHTML='<div class="al al-warn">⚠️ Fièvre importante (≥38.5°C)</div>';
+  else if(t>0&&t<36) el.innerHTML='<div class="al al-warn">⚠️ Hypothermie (< 36°C)</div>';
+  else el.innerHTML='';
+}
+
+function saveConstantes(){
+  const pid=document.getElementById('cs-pid').value;
+  const nom=document.getElementById('cs-pnom').value;
+  if(!pid){alert('Sélectionnez un patient');return;}
+  const poids=parseFloat(document.getElementById('const-poids').value)||0;
+  const taille=parseFloat(document.getElementById('const-taille').value)||0;
+  const imc=poids&&taille?poids/((taille/100)**2):0;
+  const constantes=DB.push('constantes',{
+    patient_id:pid,patient_nom:nom,
+    poids,taille,imc:Math.round(imc*10)/10,
+    ta:document.getElementById('const-ta').value,
+    temperature:document.getElementById('const-temp').value,
+    pouls:document.getElementById('const-pouls').value,
+    spo2:document.getElementById('const-spo2').value,
+    motif:document.getElementById('const-motif').value,
+    date:today()
+  });
+  const flags=getAlertFlags(constantes);
+  logAudit('CONSTANTES_CREATE',{patient_id:pid,temperature:constantes.temperature,ta:constantes.ta,spo2:constantes.spo2,imc:constantes.imc,alertes:flags.map(f=>f.msg)});
+  document.getElementById('const-confirm').innerHTML=`
+    <div class="card" id="const-print-${pid}">
+      <div class="card-title">Fiche constantes — À imprimer</div>
+      <div class="recu">
+        <div class="recu-title">CONSTANTES VITALES</div>
+        <div style="text-align:center;font-size:10px">${new Date().toLocaleString('fr-FR')} | Agent : ${CURRENT_AGENT.nom}</div>
+        <div style="text-align:center;font-weight:700;margin:6px 0">${nom}</div>
+        <hr style="margin:4px 0">
+        ${poids?`<div class="recu-line"><span>Poids</span><span>${poids} kg</span></div>`:''}
+        ${taille?`<div class="recu-line"><span>Taille</span><span>${taille} cm</span></div>`:''}
+        ${imc?`<div class="recu-line"><span>IMC</span><span>${imc.toFixed(1)}</span></div>`:''}
+        ${constantes.ta?`<div class="recu-line"><span>Tension</span><span>${constantes.ta}</span></div>`:''}
+        ${constantes.temperature?`<div class="recu-line"><span>Température</span><span>${constantes.temperature}°C</span></div>`:''}
+        ${constantes.pouls?`<div class="recu-line"><span>Pouls</span><span>${constantes.pouls} bpm</span></div>`:''}
+        ${constantes.spo2?`<div class="recu-line"><span>SpO2</span><span>${constantes.spo2}%</span></div>`:''}
+        ${constantes.motif?`<div style="margin-top:6px;font-size:10px"><strong>Motif :</strong> ${constantes.motif}</div>`:''}
+        ${flags.length?`<div style="margin-top:6px;display:flex;gap:4px;flex-wrap:wrap">${flags.map(alertBadge).join('')}</div>`:''}
+      </div>
+      <div class="btn-row no-print">
+        <button class="btn btn-print btn-sm" onclick="printSection('const-print-${pid}')">Imprimer</button>
+      </div>
+    </div>`;
+  document.getElementById('cs-selected').style.display='none';
+  document.getElementById('cs-pid').value='';
+}
+
+// ── ACCUEIL — Consultation ───────────────────────────────
+VIEW['acc-consultation'] = (el) => {
+  el.innerHTML=`
+  <div class="g2">
+    <div class="card">
+      ${renderCriticalBanner('Consultation')}
+      <div class="card-title">Enregistrement de consultation</div>
+      <div class="sb"><input type="text" id="cc-search" placeholder="Rechercher patient..." oninput="searchCC()"></div>
+      <div id="cc-results" style="max-height:130px;overflow-y:auto"></div>
+      <input type="hidden" id="cc-pid"><input type="hidden" id="cc-pnom"><input type="hidden" id="cc-pstatut"><input type="hidden" id="cc-pdroits">
+      <div id="cc-selected" style="display:none">
+        <div class="al al-info"><strong id="cc-pnom-lbl"></strong></div>
+        <div id="cc-clinical"></div>
+        <div class="fs">
+          <div class="fr"><label>Vu par</label>
+            <select id="cc-praticien">
+              <option value="MEDECIN">Médecin-Chef</option>
+              <option value="INFIRMIER">Infirmier de service</option>
+            </select></div>
+          <div class="fr"><label>Type</label>
+            <select id="cc-type" onchange="updateConsultTarif()">
+              <option value="NORMALE">Consultation normale</option>
+              <option value="VISITE_FPM">Visite médicale FPM (5 000 F)</option>
+              <option value="STAGE">Visite médicale de stage (5 000 F)</option>
+              <option value="CONTROLE">Consultation de contrôle</option>
+              <option value="URGENCE">Urgence</option>
+            </select></div>
+          <div class="fr"><label>Motif / Diagnostic provisoire</label>
+            <textarea id="cc-motif" placeholder="Symptômes, motif de la visite..."></textarea></div>
+          <div class="fr"><label>Prescription / Ordonnance</label>
+            <textarea id="cc-ordo" placeholder="Médicaments, examens prescrits..."></textarea></div>
+          <div class="fr"><label>Antécédents (mise à jour dossier)</label>
+            <textarea id="cc-antecedents" placeholder="HTA, diabète, asthme, chirurgie antérieure, allergies..."></textarea></div>
+          <div class="fr"><label>Orientation(s)</label>
+            <div style="flex:1;display:flex;flex-wrap:wrap;gap:6px">
+              <label><input type="checkbox" value="LABO"> Laboratoire</label>
+              <label><input type="checkbox" value="PHARMACIE"> Pharmacie</label>
+              <label><input type="checkbox" value="SOINS"> Soins infirmiers</label>
+              <label><input type="checkbox" value="OBS"> Mise en obs.</label>
+              <label><input type="checkbox" value="RDV"> Rendez-vous</label>
+            </div></div>
+        </div>
+        <div class="tl"><span>Tarif consultation</span><strong id="cc-tarif-lbl">—</strong></div>
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="saveConsultation()">Valider + Imprimer facture</button>
+        </div>
+      </div>
+    </div>
+    <div id="cc-facture-zone"></div>
+  </div>`;
+};
+
+function searchCC(){
+  const q=document.getElementById('cc-search').value.toLowerCase();
+  const res=document.getElementById('cc-results');
+  if(q.length<2){res.innerHTML='';return;}
+  const found=DB.get('patients').filter(p=>p.nom.toLowerCase().includes(q)).slice(0,5);
+  res.innerHTML=found.map(p=>`
+    <div class="pat-card" onclick="selectCC('${p.id}','${escSQ(p.nom)}','${p.statut_simple||p.statut}')">
+      <div class="pat-av" style="background:#e8f5e9">${p.nom[0]}</div>
+      <div style="flex:1"><div style="font-weight:700;font-size:12px">${p.nom}</div>
+        <div style="font-size:10px;color:var(--muted)">${fmtD(p.created_at)} ${p.droits_verifies==='1'?'':'• droits non vérifiés'}</div>
+        <div style="display:flex;gap:4px;flex-wrap:wrap">${(getAlertFlags(getLatestConstantes(p.id))).map(alertBadge).join('')}</div></div>
+      ${badge(p.statut_simple||p.statut)}
+    </div>`).join('')||'<p style="color:#aaa;text-align:center;padding:8px">Aucun patient trouvé</p>';
+}
+function selectCC(id,nom,statut){
+  const patient=getPatientById(id);
+  document.getElementById('cc-pid').value=id;
+  document.getElementById('cc-pnom').value=nom;
+  document.getElementById('cc-pstatut').value=statut;
+  document.getElementById('cc-pdroits').value=patient?.droits_verifies||'1';
+  document.getElementById('cc-pnom-lbl').textContent=nom+' ('+statut+')';
+  document.getElementById('cc-clinical').innerHTML=renderClinicalSummary(id);
+  document.getElementById('cc-antecedents').value=patient?.antecedents||'';
+  document.getElementById('cc-selected').style.display='block';
+  document.getElementById('cc-search').value='';
+  document.getElementById('cc-results').innerHTML='';
+  updateConsultTarif();
+}
+function updateConsultTarif(){
+  const type=document.getElementById('cc-type')?.value;
+  const statut=document.getElementById('cc-pstatut')?.value||'FPM';
+  const droits=document.getElementById('cc-pdroits')?.value||'1';
+  const statutFacturation=droits==='1'?statut:'NA';
+  const el=document.getElementById('cc-tarif-lbl');
+  if(!el||!type)return;
+  let tarif=0;
+  if(type==='STAGE') tarif=TARIFS.stage;
+  else if(type==='VISITE_FPM') tarif=TARIFS.stage;
+  else if(type==='NORMALE'||type==='URGENCE'||type==='CONTROLE'){
+    if(statutFacturation==='FPM') tarif=0;
+    else if(statutFacturation==='CMU') tarif=150;
+    else tarif=1000;
+  }
+  el.textContent=tarif===0?'GRATUIT (FPM)':fmt(tarif)+' FCFA';
+  if(droits!=='1'&&type!=='STAGE'&&type!=='VISITE_FPM') el.textContent+=' (droits non vérifiés)';
+  el.style.color=tarif===0?'var(--fpm)':'var(--marine)';
+  return tarif;
+}
+function saveConsultation(){
+  const pid=document.getElementById('cc-pid').value;
+  const nom=document.getElementById('cc-pnom').value;
+  const statut=document.getElementById('cc-pstatut').value;
+  const droits=document.getElementById('cc-pdroits').value||'1';
+  const statutFacturation=droits==='1'?statut:'NA';
+  if(!pid){alert('Sélectionnez un patient');return;}
+  const type=document.getElementById('cc-type').value;
+  const praticien=document.getElementById('cc-praticien').value;
+  if(type==='VISITE_FPM'&&statut!=='FPM'){
+    alert('La visite médicale FPM est réservée au statut FPM.');
+    return;
+  }
+  let tarif=0;
+  if(type==='STAGE') tarif=TARIFS.stage;
+  else if(type==='VISITE_FPM') tarif=TARIFS.stage;
+  else if(statutFacturation==='CMU') tarif=150;
+  else if(statutFacturation==='NA') tarif=1000;
+  // FPM : consultation gratuite
+  const motif=document.getElementById('cc-motif').value;
+  const ordo=document.getElementById('cc-ordo').value;
+  const antecedents=document.getElementById('cc-antecedents').value.trim();
+  const orients=[...document.querySelectorAll('#cc-selected input[type=checkbox]:checked')].map(c=>c.value);
+  const c=DB.push('consultations',{
+    patient_id:pid,patient_nom:nom,statut,statut_facturation:statutFacturation,droits_verifies:droits,type,praticien,motif,ordonnance:ordo,orientations:orients,tarif,date:today()
+  });
+  if(antecedents){
+    const pts=DB.get('patients');const i=pts.findIndex(p=>p.id===pid);
+    if(i>=0){pts[i].antecedents=antecedents;DB.set('patients',pts);}
+  }
+  logAudit('CONSULTATION_CREATE',{patient_id:pid,nom,statut,statut_facturation:statutFacturation,type,orientations:orients,tarif});
+  if(tarif>0) DB.push('transactions',{
+    patient_id:pid,patient_nom:nom,statut:statutFacturation,service:'ACCUEIL',
+    designation:type==='STAGE'?'Visite médicale de stage':type==='VISITE_FPM'?'Visite médicale FPM':'Consultation '+statutFacturation,
+    montant:tarif,cnam:0,encaisse:tarif,date:today()
+  });
+  const now=new Date();
+  // Calcul date d'expiration (validité 7 jours)
+  const expDate=new Date(now);expDate.setDate(expDate.getDate()+7);
+  const expStr=expDate.toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric'});
+  // Libellé tarifaire selon statut
+  let tarifLabel='', tarifDetail='';
+  if(type==='STAGE'){
+    tarifLabel=fmt(tarif)+' FCFA'; tarifDetail='Visite médicale de stage — Tous statuts';
+  } else if(type==='VISITE_FPM'){
+    tarifLabel=fmt(tarif)+' FCFA'; tarifDetail='Visite médicale FPM — Titulaires et ayants-droit FPM';
+  } else if(statutFacturation==='FPM'){
+    tarifLabel='GRATUIT'; tarifDetail='Militaire / Ayant-droit FPM — Consultation prise en charge';
+  } else if(statutFacturation==='CMU'){
+    tarifLabel=fmt(tarif)+' FCFA'; tarifDetail='Assuré CMU — Ticket modérateur consultation';
+  } else {
+    tarifLabel=fmt(tarif)+' FCFA'; tarifDetail='Patient non-assuré — Tarif plein';
+  }
+  const patient=getPatientById(pid);
+  const dossierAffiche=patient?.dossier_no||'NON ATTRIBUE';
+  document.getElementById('cc-facture-zone').innerHTML=`
+    <div class="card" id="fact-consult-${pid}">
+      <div class="card-title">Ticket de consultation — Imprimable</div>
+      <div class="recu">
+        <div class="recu-title">TICKET DE CONSULTATION</div>
+        <div style="text-align:center;font-size:11px;font-weight:700;color:var(--marine)">CSA — GARDE RÉPUBLICAINE DU PLATEAU</div>
+        <div style="text-align:center;font-size:10px;color:#888;margin-bottom:6px">${now.toLocaleString('fr-FR')} | ${CURRENT_AGENT.nom}</div>
+        <hr style="margin:4px 0">
+        <div class="recu-line"><span>N° Dossier</span><span style="font-weight:700">${dossierAffiche}</span></div>
+        <div class="recu-line"><span>Patient</span><span><strong>${nom}</strong></span></div>
+        <div class="recu-line"><span>Statut</span><span style="font-weight:700;color:${statut==='FPM'?'var(--fpm)':statut==='CMU'?'var(--cmu)':'var(--na)'}">${statut}</span></div>
+        <div class="recu-line"><span>Facturation</span><span style="font-weight:700">${statutFacturation}</span></div>
+        <div class="recu-line"><span>Type</span><span>${type}</span></div>
+        <div class="recu-line"><span>Praticien</span><span>${praticien}</span></div>
+        ${motif?`<div class="recu-line"><span>Motif</span><span style="font-size:10px">${motif}</span></div>`:''}
+        ${orients.length?`<div class="recu-line"><span>Orienté vers</span><span style="font-weight:700;color:var(--bleu)">${orients.join(', ')}</span></div>`:''}
+        <hr style="margin:6px 0">
+        <div class="recu-tot" style="background:${statut==='FPM'?'#e8f5e9':'#fff8e1'};padding:6px;border-radius:4px">
+          <span style="font-size:11px">${tarifDetail}</span>
+          <span style="font-size:16px;font-weight:800;color:${statut==='FPM'?'var(--fpm)':'var(--marine)'}">${tarifLabel}</span>
+        </div>
+        <div style="margin-top:8px;background:#f0f4ff;border-radius:4px;padding:6px;text-align:center;border:1px dashed var(--bleu)">
+          <div style="font-size:10px;color:var(--muted)">VALIDITÉ DU TICKET</div>
+          <div style="font-size:12px;font-weight:700;color:var(--bleu)">Ce ticket est valable jusqu'au <strong>${expStr}</strong></div>
+          <div style="font-size:9px;color:var(--muted);margin-top:2px">Durée maximale : 7 jours à compter de la date de consultation</div>
+        </div>
+      </div>
+      <div class="btn-row no-print">
+        <button class="btn btn-print btn-sm" onclick="printSection('fact-consult-${pid}')">🖨 Imprimer ticket</button>
+      </div>
+      ${ordo?`<div class="card" style="margin-top:8px" id="ordo-${c.id}"><div class="card-title">Ordonnance</div><div class="recu"><div class="recu-title">ORDONNANCE</div><div style="font-size:11px">${escHtml(ordo).replace(/\n/g,'<br>')}</div><hr style="margin:6px 0"><div style="font-size:10px">Prescrite par : <strong>${praticien}</strong> — ${escHtml(CURRENT_AGENT.nom)}</div></div><div class="btn-row no-print"><button class="btn btn-print btn-sm" onclick="printSection('ordo-${c.id}')">🖨 Imprimer ordonnance</button></div></div>`:''}
+      ${orients.length?`<div class="al al-info" style="margin-top:8px"><strong>Orientations :</strong> ${orients.join(' → ')}</div>`:''}
+    </div>`;
+  document.getElementById('cc-selected').style.display='none';
+}
+
+// ── ACCUEIL — File du jour ───────────────────────────────
+VIEW['acc-liste'] = (el) => {
+  const consults=DB.todayItems('consultations');
+  const patients=DB.todayItems('patients');
+  const totalEnc=consults.reduce((s,c)=>s+c.tarif,0);
+  el.innerHTML=`
+  <div class="g3 no-print" style="margin-bottom:12px">
+    <div class="kpi" style="border-left-color:var(--marine)"><div class="kpi-ico">👥</div><div class="kpi-lbl">Patients</div><div class="kpi-val">${patients.length}</div></div>
+    <div class="kpi" style="border-left-color:var(--vert)"><div class="kpi-ico">🩺</div><div class="kpi-lbl">Consultations</div><div class="kpi-val">${consults.length}</div></div>
+    <div class="kpi" style="border-left-color:var(--or)"><div class="kpi-ico">💵</div><div class="kpi-lbl">Encaissé</div><div class="kpi-val">${fmt(totalEnc)} F</div></div>
+  </div>
+  <div class="card" id="file-print">
+    <div class="card-title">File du jour — ${new Date().toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'})}</div>
+    <div class="tw"><table>
+      <tr><th>Heure</th><th>Patient</th><th>Statut</th><th>Type</th><th>Praticien</th><th>Orientation</th><th>Tarif</th><th>Agent</th></tr>
+      ${consults.map(c=>`<tr>
+        <td>${fmtT(c.created_at)}</td>
+        <td style="font-weight:700;font-size:12px">${c.patient_nom}</td>
+        <td>${badge(c.statut)}</td>
+        <td style="font-size:11px">${c.type}</td>
+        <td style="font-size:11px">${c.praticien||'—'}</td>
+        <td style="font-size:11px;color:var(--bleu);font-weight:700">${(c.orientations||[]).join(', ')||'—'}</td>
+        <td style="font-weight:700;color:var(--vert)">${c.tarif===0?'Gratuit':fmt(c.tarif)+' F'}</td>
+        <td style="font-size:10px;color:var(--muted)">${c.agent_nom}</td>
+      </tr>`).join('')||'<tr><td colspan="8" style="text-align:center;color:#aaa;padding:16px">Aucune consultation</td></tr>'}
+      ${consults.length?`<tr class="tr-tot"><td colspan="6">TOTAL</td><td>${fmt(totalEnc)} FCFA</td><td></td></tr>`:''}
+    </table></div>
+  </div>
+  <div class="btn-row no-print"><button class="btn btn-print btn-sm" onclick="printSection('file-print')">Imprimer la liste</button></div>`;
+};
+
+// ── SOINS — Réaliser des soins ───────────────────────────
+VIEW['soins-actes'] = (el) => {
+  const incoming=DB.todayItems('patients').slice(0,8);
+  el.innerHTML=`
+  <div class="g2">
+    <div class="card">
+      ${renderCriticalBanner('Soins')}
+      <div class="card-title">Saisie des soins infirmiers</div>
+      ${incoming.length?`<div class="al al-warn"><strong>Arrivées du jour :</strong> ${incoming.map(p=>{const n=getAlertFlags(getLatestConstantes(p.id)).length;return `${escHtml(p.nom)}${n?` <span class="badge b-err">${n} alerte(s)</span>`:''}`;}).join(' | ')}</div>`:''}
+      <div class="al al-info" style="margin-bottom:8px">
+        Entrée externe possible : cochez "Entrée directe" si le patient n'a pas d'orientation consultation.
+      </div>
+      <div class="fr">
+        <label><input type="checkbox" id="si-direct" onchange="toggleSiDirect()"> Entrée directe (sans orientation)</label>
+      </div>
+      <div class="fr" id="si-direct-motif-wrap" style="display:none">
+        <label>Motif d'entrée directe (obligatoire)</label><input type="text" id="si-direct-motif" placeholder="Ex: soin pansement externe, urgence mineure...">
+      </div>
+      <div class="sb"><input type="text" id="si-search" placeholder="Rechercher patient..." oninput="searchSI()"></div>
+      <div id="si-results" style="max-height:100px;overflow-y:auto"></div>
+      <input type="hidden" id="si-pid"><input type="hidden" id="si-pnom"><input type="hidden" id="si-pstatut">
+      <div id="si-form" style="display:none">
+        <div class="al al-info"><strong id="si-pnom-lbl"></strong></div>
+        <div id="si-clinical"></div>
+        <div class="fs">
+          <div class="fs-title" style="color:var(--vert)">Actes réalisés</div>
+          <div style="max-height:260px;overflow-y:auto">
+          ${SOINS_ACTES.map(a=>`
+            <div class="fr" style="padding:3px 0;border-bottom:1px solid #f5f5f5">
+              <label style="font-size:11px"><strong style="color:var(--cyan)">${a.code}</strong> — ${a.nom}</label>
+              <span style="font-size:9px;color:#aaa">${a.cot>0?'AMI×'+a.cot+' = '+fmt(a.cot*TARIFS.AMI)+'F':'Forfait'}</span>
+              <input type="number" class="si-qty" data-code="${a.code}" data-nom="${a.nom}" data-cot="${a.cot}" min="0" value="0" onchange="updateSoinsTotal()" style="width:55px">
+            </div>`).join('')}
+          </div>
+        </div>
+        <div class="fs">
+          <div class="fr"><label>Observations soins</label><textarea id="si-obs" placeholder="Notes infirmier..."></textarea></div>
+        </div>
+        <div class="tl"><span>Total actes AMI</span><strong id="si-tot-lbl">0 FCFA</strong></div>
+        <div class="tl sub"><span>Part CNAM (70%)</span><span id="si-cnam-lbl" style="font-weight:700;color:var(--cmu)">0 FCFA</span></div>
+        <div class="tl sub"><span>Ticket modérateur</span><span id="si-tm-lbl" style="font-weight:700;color:var(--or)">0 FCFA</span></div>
+        <div class="btn-row">
+          <button class="btn btn-success" onclick="saveSoins()">Enregistrer + Facture</button>
+        </div>
+      </div>
+    </div>
+    <div id="si-facture-zone"></div>
+  </div>`;
+};
+
+function searchSI(){
+  const q=document.getElementById('si-search').value.toLowerCase();
+  const res=document.getElementById('si-results');
+  if(q.length<2){res.innerHTML='';return;}
+  const direct=document.getElementById('si-direct')?.checked;
+  if(direct){
+    const found=DB.get('patients').filter(p=>p.nom.toLowerCase().includes(q)).slice(0,8);
+    res.innerHTML=found.map(p=>`
+    <div class="pat-card" onclick="selectSI('${p.id}','${escSQ(p.nom)}','${p.statut_simple||p.statut}')">
+      <div class="pat-av" style="background:#ffe9d6">${p.nom[0]}</div>
+      <div style="flex:1">
+        <div style="font-weight:700;font-size:12px">${p.nom}</div>
+        <div style="font-size:10px;color:var(--muted)">${p.statut_simple||p.statut} • entrée directe</div>
+        <div style="display:flex;gap:4px;flex-wrap:wrap">${(getAlertFlags(getLatestConstantes(p.id))).map(alertBadge).join('')}</div>
+      </div>
+      <span class="badge b-warn">DIRECT</span>
+    </div>`).join('')||'<p style="color:#aaa;text-align:center;padding:8px">Aucun patient trouvé</p>';
+    return;
+  }
+  const oriented=getOrientedPatients('SOINS');
+  const found=oriented.filter(c=>c.patient_nom.toLowerCase().includes(q)).slice(0,8);
+  res.innerHTML=found.map(p=>`
+    <div class="pat-card" onclick="selectSI('${p.patient_id}','${p.patient_nom}','${p.statut}')">
+      <div class="pat-av" style="background:#e3f2fd">${p.patient_nom[0]}</div>
+      <div style="flex:1">
+        <div style="font-weight:700;font-size:12px">${p.patient_nom}</div>
+        <div style="font-size:10px;color:var(--muted)">${p.statut} • orienté depuis consultation ${fmtT(p.created_at)}</div>
+        <div style="display:flex;gap:4px;flex-wrap:wrap">${(getAlertFlags(getLatestConstantes(p.patient_id))).map(alertBadge).join('')}</div>
+      </div>
+      <span class="badge b-ok">SOINS</span>
+    </div>`).join('')||'<p style="color:#aaa;text-align:center;padding:8px">Aucun patient orienté SOINS</p>';
+}
+function toggleSiDirect(){
+  const isDirect=document.getElementById('si-direct')?.checked;
+  const wrap=document.getElementById('si-direct-motif-wrap');
+  if(wrap) wrap.style.display=isDirect?'flex':'none';
+  document.getElementById('si-results').innerHTML='';
+  document.getElementById('si-search').value='';
+}
+function selectSI(id,nom,statut){
+  document.getElementById('si-pid').value=id;
+  document.getElementById('si-pnom').value=nom;
+  document.getElementById('si-pstatut').value=statut;
+  document.getElementById('si-pnom-lbl').textContent=nom+' ('+statut+')';
+  document.getElementById('si-clinical').innerHTML=renderClinicalSummary(id);
+  document.getElementById('si-form').style.display='block';
+  document.getElementById('si-search').value='';
+  document.getElementById('si-results').innerHTML='';
+  updateSoinsTotal();
+}
+function updateSoinsTotal(){
+  const pid=document.getElementById('si-pid')?.value||'';
+  const patient=getPatientById(pid);
+  const statutBase=document.getElementById('si-pstatut')?.value||'FPM';
+  const statut=patient?getBillingStatut(patient):statutBase;
+  let tot=0;
+  document.querySelectorAll('.si-qty').forEach(inp=>{
+    const q=+inp.value||0,cot=+inp.dataset.cot||0;
+    tot+=q*cot*TARIFS.AMI;
+  });
+  // FPM paye au forfait CMU pour les soins : CNAM 70%, TM 30% (seule la consultation est gratuite FPM)
+  const isFPMouCMU = statut==='FPM'||statut==='CMU';
+  const cnam=isFPMouCMU?Math.round(tot*0.7):0;
+  const tm=isFPMouCMU?Math.round(tot*0.3):tot;
+  document.getElementById('si-tot-lbl').textContent=fmt(tot)+' FCFA';
+  document.getElementById('si-cnam-lbl').textContent=fmt(cnam)+' FCFA';
+  document.getElementById('si-tm-lbl').textContent=fmt(tm)+' FCFA'+(statut==='FPM'?' (forfait CMU)':'');
+}
+function saveSoins(){
+  const pid=document.getElementById('si-pid').value;
+  const nom=document.getElementById('si-pnom').value;
+  const patient=getPatientById(pid);
+  const statut=document.getElementById('si-pstatut').value;
+  const statutFacturation=getBillingStatut(patient||{statut_simple:statut,droits_verifies:'1'});
+  if(!pid){alert('Sélectionnez un patient');return;}
+  let actes=[],tot=0;
+  document.querySelectorAll('.si-qty').forEach(inp=>{
+    const q=+inp.value||0;
+    if(q>0){const cot=+inp.dataset.cot,m=q*cot*TARIFS.AMI;actes.push({code:inp.dataset.code,nom:inp.dataset.nom,cot,qte:q,montant:m});tot+=m;}
+  });
+  if(!actes.length){alert('Sélectionnez au moins un acte');return;}
+  const direct=document.getElementById('si-direct')?.checked;
+  const directMotif=(document.getElementById('si-direct-motif')?.value||'').trim();
+  if(direct&&!directMotif){alert('Motif obligatoire pour une entrée directe');return;}
+  // FPM paye au forfait CMU pour les soins (TM 30%) — seule la consultation est gratuite FPM
+  const isFPMouCMU = statutFacturation==='FPM'||statutFacturation==='CMU';
+  const cnam=isFPMouCMU?Math.round(tot*0.7):0;
+  const tm=isFPMouCMU?Math.round(tot*0.3):tot;
+  const obs=document.getElementById('si-obs').value;
+  const s=DB.push('soins',{patient_id:pid,patient_nom:nom,statut,statut_facturation:statutFacturation,actes,total:tot,cnam,tm,observations:obs,date:today(),entree_directe:!!direct,motif_entree_directe:direct?directMotif:''});
+  DB.push('transactions',{patient_id:pid,patient_nom:nom,statut:statutFacturation,service:'SOINS',
+    designation:'Soins: '+actes.map(a=>a.nom).join(', '),montant:tot,cnam,encaisse:tm,date:today()});
+  logAudit('SOINS_CREATE',{patient_id:pid,patient_nom:nom,statut,statut_facturation:statutFacturation,total:tot,entree_directe:!!direct,motif_entree_directe:direct?directMotif:''});
+  const now=new Date();
+  document.getElementById('si-facture-zone').innerHTML=`
+    <div class="card" id="fact-soins-${pid}">
+      <div class="card-title">Facture soins infirmiers — Imprimable</div>
+      <div class="recu">
+        <div class="recu-title">SOINS INFIRMIERS — CSA PLATEAU</div>
+        <div style="text-align:center;font-size:10px">${now.toLocaleString('fr-FR')} | ${CURRENT_AGENT.nom}</div>
+        <hr style="margin:4px 0">
+        <div class="recu-line"><span>Patient</span><span><strong>${nom}</strong></span></div>
+        <div class="recu-line"><span>Statut</span><span>${statut}</span></div>
+        <div class="recu-line"><span>Facturation</span><span>${statutFacturation}</span></div>
+        ${actes.map(a=>`<div class="recu-line"><span>${a.nom} ×${a.qte}</span><span>${fmt(a.montant)} F</span></div>`).join('')}
+        <div class="recu-tot"><span>TOTAL</span><span>${fmt(tot)} FCFA</span></div>
+        ${statutFacturation==='NA'?`<div style="font-size:10px;margin-top:4px">Tarif plein (droits non vérifiés ou non-assuré)</div>`:`<div style="font-size:10px;color:#666;margin-top:4px">CNAM 70%: ${fmt(cnam)} F | TM patient${statutFacturation==='FPM'?' (forfait CMU)':''}: ${fmt(tm)} F</div>`}
+        ${obs?`<div style="font-size:10px;margin-top:6px"><strong>Obs. :</strong> ${obs}</div>`:''}
+      </div>
+      <div class="btn-row no-print">
+        <button class="btn btn-print btn-sm" onclick="printSection('fact-soins-${pid}')">Imprimer</button>
+      </div>
+    </div>`;
+  document.querySelectorAll('.si-qty').forEach(i=>i.value=0);
+  document.getElementById('si-form').style.display='none';
+  const siDirect=document.getElementById('si-direct'); if(siDirect) siDirect.checked=false;
+  const siDirectMotif=document.getElementById('si-direct-motif'); if(siDirectMotif) siDirectMotif.value='';
+  toggleSiDirect();
+}
+
+// ── SOINS — Mise en observation ─────────────────────────
+VIEW['soins-obs'] = (el) => {
+  const obs_liste=DB.get('observations');
+  const actifs=obs_liste.filter(o=>o.statut_obs!=='SORTI');
+  el.innerHTML=`
+  <div class="g2">
+    <div class="card">
+      <div class="card-title">Admettre en observation</div>
+      <div class="sb"><input type="text" id="obs-search" placeholder="Rechercher patient..." oninput="searchObsPatient()"></div>
+      <div id="obs-results" style="max-height:120px;overflow-y:auto"></div>
+      <input type="hidden" id="obs-pid">
+      <div class="fr"><label>Patient</label><input type="text" id="obs-nom" placeholder="Nom du patient"></div>
+      <div class="fr"><label>Statut</label>
+        <select id="obs-statut" onchange="updateObsTarif()">
+          <option value="FPM">FPM — 150 F/j (forfait CMU)</option>
+          <option value="CMU">CMU — 150 F/j</option>
+          <option value="NA">Non-assuré — 500 F/j</option>
+        </select></div>
+      <div class="fr"><label>Motif d'observation</label><textarea id="obs-motif" placeholder="Diagnostic, motif..."></textarea></div>
+      <div class="fr"><label>Date d'admission</label><input type="date" id="obs-date-in" value="${today()}"></div>
+      <div class="tl"><span>Tarif / jour</span><strong id="obs-tarif-lbl">Gratuit (FPM)</strong></div>
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="admettreObs()">Admettre en observation</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">Patients en observation (${actifs.length})</div>
+      ${actifs.map(o=>`<div style="background:#f8f9fb;border-radius:8px;padding:10px;margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+          <span style="font-weight:700;font-size:12px">${o.patient_nom}</span>
+          ${badge(o.statut_facturation||o.statut)}
+        </div>
+        <div style="font-size:11px;color:var(--muted)">Admis le ${fmtD(o.date_admission)} | Tarif : ${o.tarif_j===0?'Gratuit':fmt(o.tarif_j)+' F/j'} | Facturation: ${o.statut_facturation||o.statut}</div>
+        <div style="font-size:11px">${o.motif}</div>
+        <div style="margin-top:6px;padding:6px;border:1px dashed var(--border);border-radius:6px">
+          <div style="font-size:10px;font-weight:700;color:var(--marine)">Protocole de soins (Médecin-Chef)</div>
+          ${CURRENT_AGENT?.isChef?`<textarea id="obs-proto-${o.id}" style="width:100%;min-height:60px" placeholder="Un item par ligne (ex: T°/TA/SpO2 toutes les 4h)">${escHtml((o.protocole_items||[]).join('\n'))}</textarea><div class="btn-row"><button class="btn btn-sm btn-primary" onclick="saveObsProtocole('${o.id}')">Enregistrer protocole</button></div>`:''}
+          ${(o.protocole_items||[]).length?`<div style="display:flex;flex-direction:column;gap:4px;margin-top:6px">${(o.protocole_items||[]).map((it,ix)=>`<label style="font-size:11px"><input type="checkbox" id="obs-chk-${o.id}-${ix}" ${(o.protocole_done||{})[ix]?'checked':''}> ${escHtml(it)}</label>`).join('')}</div><div class="btn-row"><button class="btn btn-sm btn-success" onclick="saveObsChecklist('${o.id}')">Valider items faits</button></div>`:'<div style="font-size:10px;color:var(--muted);margin-top:4px">Aucun protocole défini.</div>'}
+        </div>
+        <div style="margin-top:6px;padding:6px;border:1px solid #e0e0e0;border-radius:6px">
+          <div style="font-size:10px;font-weight:700;color:var(--bleu)">Surveillance clinique (traçabilité interne)</div>
+          <div class="fr"><label>Constantes surveillées</label><input type="text" id="obs-const-${o.id}" placeholder="Ex: TA 145/95, T° 38.2, SpO2 92%"></div>
+          <div class="fr"><label>Médicaments administrés</label><input type="text" id="obs-med-${o.id}" placeholder="Ex: Paracétamol 1g IV 14h"></div>
+          <div class="fr"><label>Note</label><input type="text" id="obs-note-${o.id}" placeholder="Observations complémentaires"></div>
+          <div class="btn-row"><button class="btn btn-sm btn-primary" onclick="addObsSurveillance('${o.id}')">Ajouter surveillance</button></div>
+          ${(o.surveillance_logs||[]).length?`<div style="font-size:10px;max-height:120px;overflow-y:auto">${o.surveillance_logs.slice(-6).map(s=>`<div style="padding:4px 0;border-bottom:1px dashed #eee"><strong>${escHtml(s.ts||'')}</strong> — ${escHtml(s.agent||'')}<br>${escHtml(s.constantes||'—')} | ${escHtml(s.medicaments||'—')}<br>${escHtml(s.note||'')}</div>`).join('')}</div>`:'<div style="font-size:10px;color:var(--muted)">Aucune entrée de surveillance.</div>'}
+        </div>
+        <div class="btn-row" style="margin-top:6px">
+          <button class="btn btn-success btn-sm" onclick="sortirObs('${o.id}')">Sortir</button>
+          <button class="btn btn-sm btn-print" onclick="factureObs('${o.id}')">Facture</button>
+        </div>
+      </div>`).join('')||'<p style="color:#aaa;text-align:center">Aucun patient en observation</p>'}
+    </div>
+  </div>`;
+  if(!document.getElementById('obs-doc-zone')){
+    const z=document.createElement('div');
+    z.id='obs-doc-zone';
+    el.appendChild(z);
+  }
+  updateObsTarif();
+};
+
+function searchObsPatient(){
+  const q=(document.getElementById('obs-search')?.value||'').toLowerCase();
+  const res=document.getElementById('obs-results');
+  if(q.length<2){res.innerHTML='';return;}
+  const pts=DB.get('patients').filter(p=>p.nom.toLowerCase().includes(q)).slice(0,8);
+  res.innerHTML=pts.map(p=>`<div class="pat-card" onclick="selectObsPatient('${p.id}','${escSQ(p.nom)}','${p.statut_simple||p.statut}')"><div class="pat-av">${p.nom[0]}</div><div style="flex:1"><div style="font-weight:700">${escHtml(p.nom)}</div><div style="font-size:10px;color:var(--muted)">${escHtml(p.dossier_no||'—')}</div></div>${badge(getBillingStatut(p))}</div>`).join('')||'<p style="color:#aaa;text-align:center">Aucun patient</p>';
+}
+function selectObsPatient(pid,nom,statut){
+  document.getElementById('obs-pid').value=pid;
+  document.getElementById('obs-nom').value=nom;
+  document.getElementById('obs-statut').value=statut||'FPM';
+  document.getElementById('obs-search').value='';
+  document.getElementById('obs-results').innerHTML='';
+  updateObsTarif();
+}
+function updateObsTarif(){
+  const s=document.getElementById('obs-statut')?.value;
+  const pid=document.getElementById('obs-pid')?.value||'';
+  const sb=getEffectiveBillingStatut(pid,s);
+  const el=document.getElementById('obs-tarif-lbl');
+  if(!el||!s)return;
+  const t=TARIFS.obs[sb]||0;
+  el.textContent=fmt(t)+' F/jour'+(sb==='FPM'?' (forfait CMU)':'')+(sb!==s?' (droits non vérifiés)':'');
+}
+function admettreObs(){
+  const nom=document.getElementById('obs-nom').value.trim();
+  const statut=document.getElementById('obs-statut').value;
+  const pid=document.getElementById('obs-pid')?.value||'';
+  const statutFacturation=getEffectiveBillingStatut(pid,statut);
+  if(!nom){alert('Saisissez le nom du patient');return;}
+  const tarif=TARIFS.obs[statutFacturation]||0;
+  DB.push('observations',{patient_id:pid||'',patient_nom:nom,statut,statut_facturation:statutFacturation,motif:document.getElementById('obs-motif').value,
+    date_admission:document.getElementById('obs-date-in').value,tarif_j:tarif,statut_obs:'EN COURS',protocole_items:[],protocole_done:{},surveillance_logs:[],date:today()});
+  logAudit('OBS_ADMISSION',{patient:nom,statut,statut_facturation:statutFacturation,tarif_j:tarif});
+  showView('soins-obs');
+}
+function saveObsProtocole(id){
+  if(!CURRENT_AGENT?.isChef){alert('Action réservée au Médecin-Chef');return;}
+  const obs=DB.get('observations'); const idx=obs.findIndex(o=>o.id===id); if(idx<0) return;
+  const raw=(document.getElementById('obs-proto-'+id)?.value||'').split('\n').map(s=>s.trim()).filter(Boolean);
+  obs[idx].protocole_items=raw;
+  const keep={}; raw.forEach((_,i)=>{if(obs[idx].protocole_done?.[i]) keep[i]=true;});
+  obs[idx].protocole_done=keep;
+  DB.set('observations',obs);
+  logAudit('OBS_PROTOCOLE_UPDATE',{patient:obs[idx].patient_nom,items:raw.length});
+  showView('soins-obs');
+}
+function saveObsChecklist(id){
+  const obs=DB.get('observations'); const idx=obs.findIndex(o=>o.id===id); if(idx<0) return;
+  const done={};
+  (obs[idx].protocole_items||[]).forEach((_,i)=>{const ck=document.getElementById(`obs-chk-${id}-${i}`); if(ck?.checked) done[i]=true;});
+  obs[idx].protocole_done=done;
+  DB.set('observations',obs);
+  logAudit('OBS_PROTOCOLE_CHECK',{patient:obs[idx].patient_nom,done:Object.keys(done).length});
+}
+function addObsSurveillance(id){
+  const obs=DB.get('observations'); const idx=obs.findIndex(o=>o.id===id); if(idx<0) return;
+  const entry={
+    ts:new Date().toLocaleString('fr-FR'),
+    agent:CURRENT_AGENT?.nom||'?',
+    constantes:document.getElementById(`obs-const-${id}`)?.value||'',
+    medicaments:document.getElementById(`obs-med-${id}`)?.value||'',
+    note:document.getElementById(`obs-note-${id}`)?.value||''
+  };
+  if(!entry.constantes&&!entry.medicaments&&!entry.note){alert('Renseignez au moins une information de surveillance');return;}
+  obs[idx].surveillance_logs=obs[idx].surveillance_logs||[];
+  obs[idx].surveillance_logs.push(entry);
+  DB.set('observations',obs);
+  logAudit('OBS_SURVEILLANCE_ADD',{patient:obs[idx].patient_nom,agent:entry.agent});
+  showView('soins-obs');
+}
+function sortirObs(id){
+  const obs=DB.get('observations');
+  const idx=obs.findIndex(o=>o.id===id);
+  if(idx>=0){
+    const o=obs[idx];
+    const dateIn=new Date(o.date_admission);
+    const dateOut=new Date();
+    const jours=Math.max(1,Math.ceil((dateOut-dateIn)/(1000*60*60*24)));
+    const montant=o.tarif_j*jours;
+    obs[idx].statut_obs='SORTI';
+    obs[idx].date_sortie=today();
+    obs[idx].nb_jours=jours;
+    obs[idx].montant_total=montant;
+    DB.set('observations',obs);
+    if(montant>0) DB.push('transactions',{
+      patient_nom:o.patient_nom,statut:o.statut_facturation||o.statut,service:'SOINS',
+      designation:`Observation ${jours}j × ${fmt(o.tarif_j)} F`,
+      montant,cnam:0,encaisse:montant,date:today()
+    });
+    logAudit('OBS_SORTIE',{patient:o.patient_nom,jours,montant});
+    alert(`Patient sorti après ${jours} jour(s). Montant : ${fmt(montant)} FCFA`);
+    showView('soins-obs');
+    setTimeout(()=>renderBilletHospitalisation(obs[idx]),80);
+    return;
+  }
+  showView('soins-obs');
+}
+function factureObs(id){
+  const o=DB.get('observations').find(x=>x.id===id);
+  if(!o)return;
+  const jours=Math.max(1,Math.ceil((new Date()-new Date(o.date_admission))/(1000*60*60*24)));
+  alert(`Observation de ${jours} jour(s)\nTarif : ${fmt(o.tarif_j)} F/j\nTotal estimé : ${fmt(o.tarif_j*jours)} FCFA`);
+}
+function renderBilletHospitalisation(o){
+  const zone=document.getElementById('obs-doc-zone');
+  if(!zone||!o) return;
+  zone.innerHTML=`
+  <div class="card" id="billet-hosp-${o.id}">
+    <div class="card-title">Billet de sortie d'hospitalisation</div>
+    <div class="recu">
+      <div class="recu-title">BILLET DE SORTIE</div>
+      <div style="text-align:center;font-size:10px">${new Date().toLocaleString('fr-FR')} | ${CURRENT_AGENT.nom}</div>
+      <div class="recu-line"><span>Patient</span><span><strong>${escHtml(o.patient_nom)}</strong></span></div>
+      <div class="recu-line"><span>Statut</span><span>${escHtml(o.statut)}</span></div>
+      <div class="recu-line"><span>Admission</span><span>${fmtD(o.date_admission)}</span></div>
+      <div class="recu-line"><span>Sortie</span><span>${fmtD(o.date_sortie||today())}</span></div>
+      <div class="recu-line"><span>Durée</span><span>${o.nb_jours||1} jour(s)</span></div>
+      <div class="recu-line"><span>Montant</span><span>${fmt(o.montant_total||0)} FCFA</span></div>
+      <div style="font-size:10px;margin-top:6px"><strong>Motif:</strong> ${escHtml(o.motif||'—')}</div>
+    </div>
+    <div class="btn-row no-print"><button class="btn btn-print btn-sm" onclick="printSection('billet-hosp-${o.id}')">🖨 Imprimer billet</button></div>
+  </div>`;
+}
+
+VIEW['soins-liste'] = (el) => {
+  const soins=DB.todayItems('soins');
+  const tot=soins.reduce((s,a)=>s+a.total,0);
+  el.innerHTML=`
+  <div class="card">
+    <div class="card-title">Soins réalisés aujourd'hui — Total ${fmt(tot)} FCFA</div>
+    <div class="tw"><table>
+      <tr><th>Heure</th><th>Patient</th><th>Statut</th><th>Actes</th><th>Total</th><th>CNAM</th><th>TM</th><th>Agent</th></tr>
+      ${soins.map(s=>`<tr>
+        <td>${fmtT(s.created_at)}</td><td style="font-weight:700">${s.patient_nom}</td>
+        <td>${badge(s.statut)}</td>
+        <td style="font-size:10px">${s.actes.map(a=>a.nom).join(', ')}</td>
+        <td>${fmt(s.total)} F</td>
+        <td style="color:var(--cmu)">${fmt(s.cnam)} F</td>
+        <td style="color:var(--or)">${fmt(s.tm)} F</td>
+        <td style="font-size:10px;color:var(--muted)">${s.agent_nom}</td>
+      </tr>`).join('')||'<tr><td colspan="8" style="text-align:center;color:#aaa;padding:16px">Aucun soin</td></tr>'}
+      ${soins.length?`<tr class="tr-tot"><td colspan="4">TOTAL</td><td>${fmt(tot)}</td><td>${fmt(soins.reduce((s,a)=>s+a.cnam,0))}</td><td>${fmt(soins.reduce((s,a)=>s+a.tm,0))}</td><td></td></tr>`:''}
+    </table></div>
+  </div>`;
+};
+
+// ── LABO — Saisie ───────────────────────────────────────
+VIEW['labo-saisie'] = (el) => {
+  const cats=[...new Set(LABO_ACTES.map(a=>a.cat))];
+  el.innerHTML=`
+  <div class="g2">
+    <div class="card" style="max-height:85vh;overflow-y:auto">
+      <div class="card-title">Saisie des actes biologiques</div>
+      <div class="sb"><input type="text" id="lb-search" placeholder="Rechercher patient orienté LABO..." oninput="searchLaboPatient()"></div>
+      <div id="lb-results" style="max-height:120px;overflow-y:auto"></div>
+      <input type="hidden" id="lb-pid">
+      <div class="fr"><label>Patient *</label><input type="text" id="lb-nom" placeholder="Nom du patient"></div>
+      <div class="fr"><label>N° dossier</label><input type="text" id="lb-dossier" placeholder="CSA-AAMM-NNNNN"></div>
+      <div class="fr"><label>Statut</label>
+        <select id="lb-statut" onchange="updateLaboTotal()">
+          <option value="FPM">FPM (forfait CMU — TM 30%)</option>
+          <option value="CMU">CMU (TM 30%)</option>
+          <option value="NA">Non-assuré (100%)</option>
+        </select></div>
+      <div class="fr"><label>Prélevé par</label><input type="text" id="lb-prel" placeholder="Initiales tech."></div>
+      ${cats.map(cat=>`
+        <div class="fs">
+          <div class="fs-title" style="color:var(--bleu)">${cat}</div>
+          ${LABO_ACTES.filter(a=>a.cat===cat).map(a=>`
+            <div class="fr" style="padding:3px 0;border-bottom:1px solid #f8f8f8">
+              <label style="font-size:11px"><strong style="color:var(--bleu);font-size:10px">${a.code}</strong> ${a.nom}<br><span style="font-size:9px;color:#aaa">${a.tube}</span></label>
+              <span style="font-size:9px;color:#999">B${a.cot}=${fmt(a.cot*TARIFS.B)}F</span>
+              <input type="number" class="lb-qty" data-code="${a.code}" data-nom="${a.nom}" data-cot="${a.cot}" data-tube="${a.tube}" min="0" value="0" onchange="updateLaboTotal()" style="width:50px">
+            </div>`).join('')}
+        </div>`).join('')}
+      <div class="tl"><span>Total actes</span><strong id="lb-tot-lbl">0 FCFA</strong></div>
+      <div class="tl sub"><span>Part CNAM (70%)</span><span id="lb-cnam-lbl" style="font-weight:700;color:var(--cmu)">0</span></div>
+      <div class="tl sub"><span>Ticket modérateur</span><span id="lb-tm-lbl" style="font-weight:700;color:var(--or)">0</span></div>
+      <div class="fr"><label>Résultat / Commentaire</label><textarea id="lb-result" placeholder="Résultats, commentaires..."></textarea></div>
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="saveLabo()">Enregistrer + Facture</button>
+        <button class="btn btn-danger btn-sm" onclick="resetLabo()">Effacer</button>
+      </div>
+    </div>
+    <div id="lb-facture-zone"></div>
+  </div>`;
+};
+function searchLaboPatient(){
+  const q=document.getElementById('lb-search').value.toLowerCase();
+  const res=document.getElementById('lb-results');
+  if(q.length<2){res.innerHTML='';return;}
+  const oriented=getOrientedPatients('LABO');
+  const found=oriented.filter(c=>c.patient_nom.toLowerCase().includes(q)).slice(0,8);
+  res.innerHTML=found.map(c=>{
+    const patient=getPatientById(c.patient_id);
+    const dossier=patient?.dossier_no||'NON ATTRIBUE';
+    return `<div class="pat-card" onclick="selectLaboPatient('${c.patient_id}','${escSQ(c.patient_nom)}','${escSQ(dossier)}','${escSQ(c.statut)}')">
+      <div class="pat-av" style="background:#e8f0ff">${c.patient_nom[0]}</div>
+      <div style="flex:1">
+        <div style="font-weight:700;font-size:12px">${c.patient_nom}</div>
+        <div style="font-size:10px;color:var(--muted)">${dossier} • ${c.statut}</div>
+      </div>
+      <span class="badge b-ok">LABO</span>
+    </div>`;
+  }).join('')||'<p style="color:#aaa;text-align:center;padding:8px">Aucun patient orienté LABO</p>';
+}
+function selectLaboPatient(pid,nom,dossier,statut){
+  document.getElementById('lb-pid').value=pid||'';
+  document.getElementById('lb-nom').value=nom;
+  document.getElementById('lb-dossier').value=dossier;
+  document.getElementById('lb-statut').value=statut||'FPM';
+  document.getElementById('lb-search').value='';
+  document.getElementById('lb-results').innerHTML='';
+  updateLaboTotal();
+}
+function updateLaboTotal(){
+  const s=document.getElementById('lb-statut')?.value||'FPM';
+  const pid=document.getElementById('lb-pid')?.value||'';
+  const sf=getEffectiveBillingStatut(pid,s);
+  let tot=0;
+  document.querySelectorAll('.lb-qty').forEach(i=>{const q=+i.value||0,c=+i.dataset.cot||0;tot+=q*c*TARIFS.B;});
+  // FPM paye au forfait CMU pour la biologie (TM 30%) — seule la consultation est gratuite FPM
+  const isFPMouCMU = sf==='FPM'||sf==='CMU';
+  const cnam=isFPMouCMU?Math.round(tot*0.7):0;
+  const tm=isFPMouCMU?Math.round(tot*0.3):tot;
+  document.getElementById('lb-tot-lbl').textContent=fmt(tot)+' FCFA';
+  document.getElementById('lb-cnam-lbl').textContent=fmt(cnam)+' FCFA';
+  document.getElementById('lb-tm-lbl').textContent=fmt(tm)+' FCFA'+(sf==='FPM'?' (forfait CMU)':'')+(sf!==s?' (droits non vérifiés)':'');
+}
+function saveLabo(){
+  const nom=document.getElementById('lb-nom').value.trim();
+  const s=document.getElementById('lb-statut').value;
+  const pid=document.getElementById('lb-pid')?.value||'';
+  const sf=getEffectiveBillingStatut(pid,s);
+  if(!nom){alert('Saisissez le nom du patient');return;}
+  let actes=[],tot=0;
+  document.querySelectorAll('.lb-qty').forEach(i=>{
+    const q=+i.value||0;
+    if(q>0){const c=+i.dataset.cot,m=q*c*TARIFS.B;actes.push({code:i.dataset.code,nom:i.dataset.nom,tube:i.dataset.tube,cot:c,qte:q,montant:m});tot+=m;}
+  });
+  if(!actes.length){alert('Sélectionnez au moins un acte');return;}
+  // FPM paye au forfait CMU pour la biologie (TM 30%) — seule la consultation est gratuite FPM
+  const isFPMouCMU = sf==='FPM'||sf==='CMU';
+  const cnam=isFPMouCMU?Math.round(tot*0.7):0;
+  const tm=isFPMouCMU?Math.round(tot*0.3):tot;
+  const result=document.getElementById('lb-result').value;
+  const r=DB.push('labo_actes',{patient_nom:nom,dossier:document.getElementById('lb-dossier').value,
+    patient_id:pid||'',statut:s,statut_facturation:sf,actes,total:tot,cnam,tm,resultat:result,preleve_par:document.getElementById('lb-prel').value,date:today()});
+  logAudit('LABO_CREATE',{patient_nom:nom,statut:s,statut_facturation:sf,total:tot,dossier:r.dossier||''});
+  DB.push('transactions',{patient_nom:nom,statut:sf,service:'LABO',
+    designation:'Bio: '+actes.map(a=>a.nom).join(', '),montant:tot,cnam,encaisse:tm,date:today()});
+  const now=new Date();
+  document.getElementById('lb-facture-zone').innerHTML=`
+    <div class="card" id="fact-labo-${r.id}">
+      <div class="card-title">Facture biologie — Imprimable</div>
+      <div class="recu">
+        <div class="recu-title">LABORATOIRE — CSA PLATEAU</div>
+        <div style="text-align:center;font-size:10px">${now.toLocaleString('fr-FR')} | ${CURRENT_AGENT.nom}</div>
+        <div style="text-align:center;font-weight:700;margin:4px 0">${nom} — ${s} / Facturation ${sf}</div>
+        <hr style="margin:4px 0">
+        ${actes.map(a=>`<div class="recu-line"><span>${a.code} — ${a.nom} ×${a.qte}</span><span>${fmt(a.montant)} F</span></div>`).join('')}
+        <div class="recu-tot"><span>TOTAL</span><span>${fmt(tot)} FCFA</span></div>
+        ${sf==='NA'?`<div style="font-size:10px;margin-top:4px">Tarif plein (droits non vérifiés ou non-assuré)</div>`:`<div style="font-size:10px;color:#666;margin-top:4px">CNAM 70%: ${fmt(cnam)} F | TM${sf==='FPM'?' (forfait CMU)':''}: ${fmt(tm)} F</div>`}
+        <div style="font-size:10px;margin-top:6px;color:#555">Tubes requis : ${[...new Set(actes.map(a=>a.tube))].join(', ')}</div>
+      </div>
+      <div class="btn-row no-print">
+        <button class="btn btn-print btn-sm" onclick="printSection('fact-labo-${r.id}')">Imprimer</button>
+      </div>
+    </div>`;
+  resetLabo();
+}
+function resetLabo(){
+  const p=document.getElementById('lb-pid'); if(p)p.value='';
+  document.getElementById('lb-nom').value='';
+  document.getElementById('lb-dossier').value='';
+  document.getElementById('lb-result').value='';
+  document.getElementById('lb-prel').value='';
+  document.querySelectorAll('.lb-qty').forEach(i=>i.value=0);
+  updateLaboTotal();
+}
+
+VIEW['labo-resultats'] = (el) => {
+  const actes=DB.todayItems('labo_actes');
+  el.innerHTML=`
+  <div class="card">
+    <div class="card-title">Résultats biologie du jour (${actes.length} dossiers)</div>
+    <div class="tw"><table>
+      <tr><th>Heure</th><th>Patient</th><th>Statut</th><th>Actes</th><th>Total</th><th>CNAM</th><th>TM</th><th>Résultat</th><th>Tech.</th></tr>
+      ${actes.map(a=>`<tr>
+        <td>${fmtT(a.created_at)}</td><td style="font-weight:700">${a.patient_nom}</td>
+        <td>${badge(a.statut)}</td>
+        <td style="font-size:10px">${a.actes.map(x=>x.code).join(', ')}</td>
+        <td>${fmt(a.total)} F</td>
+        <td style="color:var(--cmu)">${fmt(a.cnam)} F</td>
+        <td style="color:var(--or)">${fmt(a.tm)} F</td>
+        <td style="font-size:10px;color:var(--rouge)">${a.resultat||'—'}</td>
+        <td style="font-size:10px;color:var(--muted)">${a.preleve_par||a.agent_nom}</td>
+      </tr>`).join('')||'<tr><td colspan="9" style="text-align:center;color:#aaa;padding:16px">Aucun acte</td></tr>'}
+    </table></div>
+  </div>`;
+};
+
+VIEW['labo-feuilles'] = (el) => {
+  const actes=DB.get('labo_actes').filter(a=>a.statut==='CMU'||a.statut==='FPM');
+  const totCnam=actes.reduce((s,a)=>s+a.cnam,0);
+  el.innerHTML=`
+  <div class="al al-warn" style="margin-bottom:12px">
+    <strong>⏰ Rappel CNAM</strong>Feuilles de soins à transmettre avant le 5 du mois suivant. Total à facturer : <strong>${fmt(totCnam)} FCFA</strong>
+  </div>
+  <div class="card" id="feuilles-print">
+    <div class="card-title">Feuilles de soins CMU/FPM — ${actes.length} dossiers</div>
+    <div class="tw"><table>
+      <tr><th>Date</th><th>Patient</th><th>Statut</th><th>Codes actes</th><th>Total</th><th>Part CNAM</th><th>TM</th></tr>
+      ${actes.slice(0,60).map(a=>`<tr>
+        <td>${fmtD(a.created_at)}</td><td style="font-weight:700">${a.patient_nom}</td>
+        <td>${badge(a.statut)}</td>
+        <td style="font-size:10px">${a.actes.map(x=>x.code+' B'+x.cot).join(', ')}</td>
+        <td>${fmt(a.total)} F</td>
+        <td style="color:var(--cmu);font-weight:700">${fmt(a.cnam)} F</td>
+        <td style="color:var(--or)">${fmt(a.tm)} F</td>
+      </tr>`).join('')}
+      ${actes.length?`<tr class="tr-tot"><td colspan="4">TOTAL (${actes.length} dossiers)</td><td>${fmt(actes.reduce((s,a)=>s+a.total,0))} F</td><td style="color:var(--cmu)">${fmt(totCnam)} F</td><td>${fmt(actes.reduce((s,a)=>s+a.tm,0))} F</td></tr>`:''}
+    </table></div>
+    <div class="btn-row no-print"><button class="btn btn-print btn-sm" onclick="printSection('feuilles-print')">Imprimer pour CNAM</button></div>
+  </div>`;
+};
+
+// ── PHARMACIE — Délivrance ───────────────────────────────
+VIEW['pha-vente'] = (el) => {
+  const stock=DB.getStock();
+  el.innerHTML=`
+  <div class="g2">
+    <div class="card">
+      <div class="card-title">Délivrance de médicaments</div>
+      <div class="fr"><label>Origine</label>
+        <select id="ph-origine" onchange="togglePhDirectReason()">
+          <option value="ORIENTATION">Orientation consultation</option>
+          <option value="DIRECTE">Entrée directe pharmacie</option>
+        </select></div>
+      <div class="sb"><input type="text" id="ph-search" placeholder="Rechercher patient..." oninput="searchPharmaPatient()"></div>
+      <div id="ph-results" style="max-height:120px;overflow-y:auto"></div>
+      <input type="hidden" id="ph-pid">
+      <div class="fr" id="ph-direct-motif-wrap" style="display:none"><label>Motif entrée directe (obligatoire)</label><input type="text" id="ph-direct-motif" placeholder="Ex: achat direct médicament chronique"></div>
+      <div class="fr"><label>Patient *</label><input type="text" id="ph-nom" placeholder="Nom du patient"></div>
+      <div class="fr"><label>Statut</label>
+        <select id="ph-statut" onchange="updatePhaTotal()">
+          <option value="FPM">FPM (0% à charge)</option>
+          <option value="CMU">CMU (prix cession +15%)</option>
+          <option value="NA">Non-assuré (prix fixé Médecin-Chef)</option>
+        </select></div>
+      <div class="fr"><label>N° ordonnance</label><input type="text" id="ph-ord" placeholder="ORD-XXXXX"></div>
+      <div class="fs">
+        <div class="fs-title" style="color:var(--orang)">Médicaments délivrés</div>
+        <div style="max-height:220px;overflow-y:auto" id="pha-items-wrap">
+          ${stock.map(m=>`
+            <div class="fr" style="padding:3px 0;border-bottom:1px solid #f5f5f5;align-items:flex-start">
+              <div style="flex:1">
+                <div style="font-size:11px;font-weight:700">${m.nom}</div>
+                <div style="font-size:9px;color:#aaa">${m.dci} | ${m.forme} | Stock: <span style="color:${m.stock<=m.seuil?'var(--rouge)':'var(--vert)'};font-weight:700">${m.stock}</span></div>
+                <div style="font-size:9px;color:var(--muted)">FPM: ${fmt(m.px_cession)}F | CMU: ${fmt(pxCMU(m))}F | NA: ${fmt(pxNA(m))}F</div>
+              </div>
+              <div style="text-align:right;min-width:100px">
+                <input type="number" class="ph-qty" data-id="${m.id}" data-nom="${m.nom}" data-px-fpm="${m.px_cession}" data-px-cmu="${pxCMU(m)}" data-px-na="${pxNA(m)}" min="0" value="0" onchange="updatePhaTotal()" style="width:60px;padding:4px">
+              </div>
+            </div>`).join('')}
+        </div>
+      </div>
+      <div class="tl"><span>Total à payer</span><strong id="ph-tot-lbl">0 FCFA</strong></div>
+      <div class="tl sub"><span>Part CNAM</span><span id="ph-cnam-lbl" style="color:var(--cmu);font-weight:700">0</span></div>
+      <div class="btn-row">
+        <button class="btn btn-success" onclick="savePharmaVente()">Valider délivrance + Reçu</button>
+      </div>
+    </div>
+    <div id="ph-recu-zone"></div>
+  </div>`;
+};
+function togglePhDirectReason(){
+  const o=document.getElementById('ph-origine')?.value;
+  const w=document.getElementById('ph-direct-motif-wrap');
+  if(w) w.style.display=o==='DIRECTE'?'flex':'none';
+}
+function searchPharmaPatient(){
+  const q=(document.getElementById('ph-search')?.value||'').toLowerCase();
+  const res=document.getElementById('ph-results');
+  if(q.length<2){res.innerHTML='';return;}
+  const pts=DB.get('patients').filter(p=>p.nom.toLowerCase().includes(q)).slice(0,8);
+  res.innerHTML=pts.map(p=>`<div class="pat-card" onclick="selectPharmaPatient('${p.id}','${escSQ(p.nom)}','${p.statut_simple||p.statut}')"><div class="pat-av">${p.nom[0]}</div><div style="flex:1"><div style="font-weight:700">${escHtml(p.nom)}</div><div style="font-size:10px;color:var(--muted)">${escHtml(p.dossier_no||'—')}</div></div>${badge(getBillingStatut(p))}</div>`).join('')||'<p style="color:#aaa;text-align:center">Aucun patient</p>';
+}
+function selectPharmaPatient(pid,nom,statut){
+  document.getElementById('ph-pid').value=pid||'';
+  document.getElementById('ph-nom').value=nom;
+  document.getElementById('ph-statut').value=statut||'FPM';
+  document.getElementById('ph-search').value='';
+  document.getElementById('ph-results').innerHTML='';
+  updatePhaTotal();
+}
+function updatePhaTotal(){
+  const s=document.getElementById('ph-statut')?.value||'FPM';
+  const pid=document.getElementById('ph-pid')?.value||'';
+  const sf=getEffectiveBillingStatut(pid,s);
+  let tot=0;
+  document.querySelectorAll('.ph-qty').forEach(i=>{
+    const q=+i.value||0;
+    if(q>0){
+      const px=sf==='CMU'?+i.dataset.pxCmu:sf==='NA'?+i.dataset.pxNa:+i.dataset.pxFpm;
+      tot+=q*px;
+    }
+  });
+  const cnam=sf==='FPM'?tot:sf==='CMU'?Math.round(tot*0.7):0;
+  const encaisse=sf==='FPM'?0:tot;
+  document.getElementById('ph-tot-lbl').textContent=fmt(tot)+' FCFA';
+  document.getElementById('ph-cnam-lbl').textContent=sf==='FPM'?fmt(tot)+' F (couvert)':sf==='CMU'?fmt(cnam)+' F':'—';
+}
+function savePharmaVente(){
+  const nom=document.getElementById('ph-nom').value.trim();
+  const s=document.getElementById('ph-statut').value;
+  const pid=document.getElementById('ph-pid')?.value||'';
+  const sf=getEffectiveBillingStatut(pid,s);
+  const origine=document.getElementById('ph-origine').value;
+  const motifDirect=(document.getElementById('ph-direct-motif')?.value||'').trim();
+  if(!nom){alert('Saisissez le nom du patient');return;}
+  if(origine==='DIRECTE'&&!motifDirect){alert('Motif obligatoire pour une entrée directe pharmacie');return;}
+  const stock=DB.getStock();
+  let items=[],tot=0;
+  document.querySelectorAll('.ph-qty').forEach(i=>{
+    const q=+i.value||0;
+    if(q>0){
+      const px=sf==='CMU'?+i.dataset.pxCmu:sf==='NA'?+i.dataset.pxNa:+i.dataset.pxFpm;
+      items.push({id:i.dataset.id,nom:i.dataset.nom,qte:q,pu:px,montant:q*px});
+      tot+=q*px;
+      const idx=stock.findIndex(m=>m.id===i.dataset.id);
+      if(idx>=0) stock[idx].stock=Math.max(0,stock[idx].stock-q);
+    }
+  });
+  if(!items.length){alert('Sélectionnez au moins un médicament');return;}
+  DB.setStock(stock);
+  const cnam=sf==='FPM'?tot:sf==='CMU'?Math.round(tot*0.7):0;
+  const encaisse=sf==='FPM'?0:tot;
+  const tm=sf==='CMU'?Math.round(tot*0.3):sf==='NA'?tot:0;
+  const v=DB.push('pharma_ventes',{patient_id:pid||'',patient_nom:nom,statut:s,statut_facturation:sf,ordonnance:document.getElementById('ph-ord').value,items,total:tot,cnam,tm,date:today(),origine,motif_entree_directe:origine==='DIRECTE'?motifDirect:''});
+  DB.push('transactions',{patient_nom:nom,statut:sf,service:'PHARMACIE',
+    designation:'Pharmacie: '+items.map(i=>i.nom).join(', '),montant:tot,cnam,encaisse,date:today()});
+  logAudit('PHARMACIE_VENTE',{patient_nom:nom,statut:s,statut_facturation:sf,total:tot,origine,motif_entree_directe:origine==='DIRECTE'?motifDirect:''});
+  const now=new Date();
+  document.getElementById('ph-recu-zone').innerHTML=`
+    <div class="card" id="ph-recu-${v.id}">
+      <div class="card-title">Reçu pharmacie — Imprimable</div>
+      <div class="recu">
+        <div class="recu-title">PHARMACIE — CSA PLATEAU</div>
+        <div style="text-align:center;font-size:10px">${now.toLocaleString('fr-FR')} | ${CURRENT_AGENT.nom}</div>
+        <div style="text-align:center;font-weight:700;margin:4px 0">${nom} — ${s} / Facturation ${sf}</div>
+        <hr style="margin:4px 0">
+        ${items.map(i=>`<div class="recu-line"><span>${i.nom} ×${i.qte}</span><span>${fmt(i.montant)} F</span></div>`).join('')}
+        <div class="recu-tot"><span>${sf==='FPM'?'TOTAL (FPM)':'TOTAL'}</span><span>${fmt(tot)} FCFA</span></div>
+        ${sf==='FPM'?'<div style="font-size:10px;color:var(--fpm);margin-top:4px;text-align:center">100% couvert — Aucun paiement patient</div>':''}
+        ${sf==='CMU'?`<div style="font-size:10px;color:#666;margin-top:4px">CNAM (70%): ${fmt(cnam)} F | TM patient (30%): ${fmt(tm)} F</div>`:''}
+        ${sf==='NA'?`<div style="font-size:10px;margin-top:4px">Prix non-assuré — Tarif plein / Chef</div>`:''}
+      </div>
+      <div class="btn-row no-print">
+        <button class="btn btn-print btn-sm" onclick="printSection('ph-recu-${v.id}')">Imprimer reçu</button>
+      </div>
+    </div>`;
+  document.getElementById('ph-nom').value='';
+  document.getElementById('ph-pid').value='';
+  document.getElementById('ph-search').value='';
+  document.getElementById('ph-results').innerHTML='';
+  document.getElementById('ph-ord').value='';
+  document.getElementById('ph-origine').value='ORIENTATION';
+  document.getElementById('ph-direct-motif').value='';
+  togglePhDirectReason();
+  document.querySelectorAll('.ph-qty').forEach(i=>i.value=0);
+  updatePhaTotal();
+}
+
+// ── PHARMACIE — Stock ───────────────────────────────────
+VIEW['pha-stock'] = (el) => {
+  const stock=DB.getStock();
+  const alertes=stock.filter(m=>m.stock<=m.seuil);
+  const cats=[...new Set(stock.map(m=>m.categorie))];
+  const catFilter=localStorage.getItem('pha-cat-filter')||'Tous';
+  const displayed=catFilter==='Tous'?stock:stock.filter(m=>m.categorie===catFilter);
+  el.innerHTML=`
+  <div class="g4 no-print" style="margin-bottom:12px">
+    <div class="kpi" style="border-left-color:var(--vert)"><div class="kpi-ico">📦</div><div class="kpi-lbl">Références</div><div class="kpi-val" style="color:var(--vert)">${stock.length}</div></div>
+    <div class="kpi" style="border-left-color:${alertes.length?'var(--rouge)':'var(--vert)'}"><div class="kpi-ico">⚠️</div><div class="kpi-lbl">Alertes stock</div><div class="kpi-val" style="color:${alertes.length?'var(--rouge)':'var(--vert)'}">${alertes.length}</div></div>
+    <div class="kpi" style="border-left-color:var(--or)"><div class="kpi-ico">💰</div><div class="kpi-lbl">Valeur stock (cession)</div><div class="kpi-val" style="font-size:14px;color:var(--or)">${fmt(stock.reduce((s,m)=>s+m.stock*m.px_cession,0))} F</div></div>
+    <div class="kpi" style="border-left-color:var(--bleu)"><div class="kpi-ico">🏥</div><div class="kpi-lbl">Valeur CMU (+15%)</div><div class="kpi-val" style="font-size:14px;color:var(--bleu)">${fmt(stock.reduce((s,m)=>s+m.stock*pxCMU(m),0))} F</div></div>
+  </div>
+  ${alertes.length?`<div class="al al-err no-print"><strong>⚠️ ${alertes.length} article(s) en alerte de stock :</strong> ${alertes.map(m=>`${m.nom} (${m.stock} restants, seuil ${m.seuil})`).join(' | ')}</div>`:''}
+  <div class="card">
+    <div class="card-title">État des stocks — Pharmacie</div>
+    <div class="fr no-print" style="margin-bottom:10px">
+      <label>Catégorie :</label>
+      <select onchange="localStorage.setItem('pha-cat-filter',this.value);showView('pha-stock')">
+        <option ${catFilter==='Tous'?'selected':''}>Tous</option>
+        ${cats.map(c=>`<option ${catFilter===c?'selected':''}>${c}</option>`).join('')}
+      </select>
+      <label style="margin-left:12px">Ajout stock :</label>
+      <input type="text" id="sk-add-nom" placeholder="Médicament" style="flex:1">
+      <input type="number" id="sk-add-qty" placeholder="Qté" style="width:70px" min="1">
+      <button class="btn btn-success btn-sm" onclick="addStockEntry()">+ Entrée</button>
+    </div>
+    <div id="stock-table-wrap" class="tw">
+    <table>
+      <tr><th>Médicament</th><th>DCI</th><th>Catég.</th><th>Forme</th><th>Stock</th><th>Seuil</th><th>État</th><th>Prix cession</th><th>Prix CMU (+15%)</th></tr>
+      ${displayed.map(m=>{
+        const pct=Math.min(100,m.seuil>0?Math.round(m.stock/m.seuil*50):100);
+        const col=m.stock<=m.seuil?'#E24B4A':m.stock<=m.seuil*2?'#EF9F27':'#639922';
+        const etat=m.stock<=m.seuil?'b-err':m.stock<=m.seuil*2?'b-warn':'b-ok';
+        const etatLbl=m.stock<=m.seuil?'CRITIQUE':m.stock<=m.seuil*2?'FAIBLE':'OK';
+        return `<tr>
+          <td style="font-weight:700;font-size:11px">${m.nom}</td>
+          <td style="font-size:10px;color:var(--muted)">${m.dci}</td>
+          <td style="font-size:10px">${m.categorie}</td>
+          <td style="font-size:10px">${m.forme}</td>
+          <td style="font-weight:700;color:${col}">${m.stock} ${m.unite}</td>
+          <td>${m.seuil}</td>
+          <td><span class="badge ${etat}">${etatLbl}</span></td>
+          <td>${fmt(m.px_cession)} F</td>
+          <td style="color:var(--cmu)">${fmt(pxCMU(m))} F</td>
+        </tr>`;
+      }).join('')}
+    </table>
+    </div>
+  </div>`;
+};
+function addStockEntry(){
+  const nom=document.getElementById('sk-add-nom').value.trim();
+  const qty=+document.getElementById('sk-add-qty').value||0;
+  if(!nom||qty<=0){alert('Saisissez un médicament et une quantité');return;}
+  const stock=DB.getStock();
+  const idx=stock.findIndex(m=>m.nom.toLowerCase().includes(nom.toLowerCase()));
+  if(idx>=0){
+    const before=stock[idx].stock;
+    stock[idx].stock+=qty;
+    DB.setStock(stock);
+    logAudit('STOCK_ENTRY',{medicament:stock[idx].nom,med_id:stock[idx].id,before,added:qty,after:stock[idx].stock});
+    alert(`${stock[idx].nom} : +${qty} → ${stock[idx].stock} en stock`);
+  }
+  else alert('Médicament non trouvé. Contactez le Médecin-Chef pour ajouter une nouvelle référence.');
+  showView('pha-stock');
+}
+
+// ── PHARMACIE — Tableau de bord ─────────────────────────
+VIEW['pha-tableau'] = (el) => {
+  const ventes=DB.get('pharma_ventes');
+  const ventesToday=DB.todayItems('pharma_ventes');
+  const stock=DB.getStock();
+  const alertes=stock.filter(m=>m.stock<=m.seuil);
+  const totToday=ventesToday.reduce((s,v)=>s+v.total,0);
+  const totAll=ventes.reduce((s,v)=>s+v.total,0);
+  const byCat={};
+  ventes.forEach(v=>v.items.forEach(i=>{
+    const m=stock.find(s=>s.id===i.id||s.nom===i.nom);
+    const cat=(m?.categorie)||'Autre';
+    byCat[cat]=(byCat[cat]||0)+i.montant;
+  }));
+  const statuts={FPM:0,CMU:0,NA:0};
+  ventes.forEach(v=>{statuts[v.statut]=(statuts[v.statut]||0)+v.total;});
+  el.innerHTML=`
+  <div class="g4">
+    <div class="kpi" style="border-left-color:var(--orang)"><div class="kpi-ico">💰</div><div class="kpi-lbl">CA aujourd'hui</div><div class="kpi-val" style="color:var(--orang)">${fmt(totToday)} F</div></div>
+    <div class="kpi" style="border-left-color:var(--marine)"><div class="kpi-ico">📈</div><div class="kpi-lbl">CA historique</div><div class="kpi-val" style="font-size:16px;color:var(--marine)">${fmt(totAll)} F</div></div>
+    <div class="kpi" style="border-left-color:${alertes.length?'var(--rouge)':'var(--vert)'}"><div class="kpi-ico">⚠️</div><div class="kpi-lbl">Alertes stock</div><div class="kpi-val" style="color:${alertes.length?'var(--rouge)':'var(--vert)'}">${alertes.length}</div></div>
+    <div class="kpi" style="border-left-color:var(--bleu)"><div class="kpi-ico">🧾</div><div class="kpi-lbl">Délivrances totales</div><div class="kpi-val" style="color:var(--bleu)">${ventes.length}</div></div>
+  </div>
+  ${alertes.length?`<div class="al al-err"><strong>⚠️ Stock critique :</strong> ${alertes.map(m=>m.nom+' ('+m.stock+')').join(' | ')}</div>`:''}
+  <div class="g2">
+    <div class="card"><div class="card-title">Ventes par catégorie</div><canvas id="ch-pha-cat"></canvas></div>
+    <div class="card"><div class="card-title">Ventes par statut patient</div><canvas id="ch-pha-statut"></canvas></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Délivrances du jour</div>
+    <div class="tw"><table>
+      <tr><th>Heure</th><th>Patient</th><th>Statut</th><th>Médicaments</th><th>Total</th><th>CNAM</th><th>TM</th></tr>
+      ${ventesToday.map(v=>`<tr>
+        <td>${fmtT(v.created_at)}</td><td style="font-weight:700">${v.patient_nom}</td>
+        <td>${badge(v.statut)}</td>
+        <td style="font-size:10px">${v.items.map(i=>i.nom+' ×'+i.qte).join(', ')}</td>
+        <td>${fmt(v.total)} F</td>
+        <td style="color:var(--cmu)">${fmt(v.cnam)} F</td>
+        <td style="color:var(--or)">${fmt(v.tm)} F</td>
+      </tr>`).join('')||'<tr><td colspan="7" style="text-align:center;color:#aaa;padding:16px">Aucune délivrance</td></tr>'}
+    </table></div>
+  </div>`;
+  setTimeout(()=>{
+    const cats=Object.keys(byCat);
+    if(cats.length) mkChart('ch-pha-cat','bar',cats,[{data:cats.map(c=>byCat[c]),backgroundColor:'rgba(127,63,0,.75)'}]);
+    mkChart('ch-pha-statut','doughnut',['FPM','CMU','Non-assuré'],
+      [{data:[statuts.FPM||0,statuts.CMU||0,statuts.NA||0],backgroundColor:['#2E7D32','#1565C0','#6D4C41'],borderWidth:2,borderColor:'#fff'}]);
+  },100);
+};
+
+// ── COMPTA — Caisse ─────────────────────────────────────
+VIEW['cpt-caisse'] = (el) => {
+  const tx=DB.todayItems('transactions');
+  const enc=tx.reduce((s,t)=>s+t.encaisse,0);
+  const cnam=tx.reduce((s,t)=>s+t.cnam,0);
+  const tot=tx.reduce((s,t)=>s+t.montant,0);
+  const byS={ACCUEIL:0,LABO:0,PHARMACIE:0,SOINS:0};
+  tx.forEach(t=>{if(t.service in byS)byS[t.service]+=t.encaisse;});
+  el.innerHTML=`
+  <div class="g4">
+    <div class="kpi" style="border-left-color:var(--marine)"><div class="kpi-ico">💳</div><div class="kpi-lbl">Total prestations</div><div class="kpi-val" style="color:var(--marine)">${fmt(tot)}</div><div class="kpi-sub">FCFA</div></div>
+    <div class="kpi" style="border-left-color:var(--cmu)"><div class="kpi-ico">🏥</div><div class="kpi-lbl">Part CNAM</div><div class="kpi-val" style="color:var(--cmu)">${fmt(cnam)}</div></div>
+    <div class="kpi" style="border-left-color:var(--or)"><div class="kpi-ico">💵</div><div class="kpi-lbl">Encaissé direct</div><div class="kpi-val" style="color:var(--or)">${fmt(enc)}</div></div>
+    <div class="kpi" style="border-left-color:var(--bleu)"><div class="kpi-ico">🧾</div><div class="kpi-lbl">Opérations</div><div class="kpi-val" style="color:var(--bleu)">${tx.length}</div></div>
+  </div>
+  <div class="g2">
+    <div class="card"><div class="card-title">Encaissements par service</div><canvas id="ch-cpt-pie"></canvas></div>
+    <div class="card">
+      <div class="card-title">Journal de caisse — ${new Date().toLocaleDateString('fr-FR')}</div>
+      <div class="tw"><table>
+        <tr><th>Heure</th><th>Patient</th><th>Service</th><th>Statut</th><th>Montant</th><th>Encaissé</th><th>Agent</th></tr>
+        ${tx.slice(0,25).map(t=>`<tr>
+          <td>${fmtT(t.created_at)}</td>
+          <td style="font-size:11px;font-weight:700">${t.patient_nom}</td>
+          <td><span style="font-size:10px;background:#f0f4ff;color:var(--bleu);padding:1px 6px;border-radius:6px;font-weight:700">${t.service}</span></td>
+          <td>${badge(t.statut)}</td>
+          <td>${fmt(t.montant)} F</td>
+          <td style="font-weight:700;color:${t.encaisse===0?'var(--fpm)':'var(--or)'}">${t.encaisse===0?'FPM':fmt(t.encaisse)+' F'}</td>
+          <td style="font-size:10px;color:var(--muted)">${t.agent_nom}</td>
+        </tr>`).join('')||'<tr><td colspan="7" style="text-align:center;color:#aaa;padding:16px">Aucune transaction</td></tr>'}
+        ${tx.length?`<tr class="tr-tot"><td colspan="4">TOTAL</td><td>${fmt(tot)} F</td><td>${fmt(enc)} F</td><td></td></tr>`:''}
+      </table></div>
+    </div>
+  </div>`;
+  setTimeout(()=>{
+    mkChart('ch-cpt-pie','doughnut',
+      ['Accueil','Labo','Pharmacie','Soins'],
+      [{data:[byS.ACCUEIL,byS.LABO,byS.PHARMACIE,byS.SOINS],backgroundColor:['#2E7D32','#1F4E79','#7F3F00','#006064'],borderWidth:2,borderColor:'#fff'}]);
+  },100);
+};
+
+VIEW['cpt-cloture'] = (el) => {
+  const tx=DB.todayItems('transactions');
+  const enc=tx.reduce((s,t)=>s+t.encaisse,0);
+  const cnam=tx.reduce((s,t)=>s+t.cnam,0);
+  const consults=DB.todayItems('consultations');
+  const patients=DB.todayItems('patients');
+  const labo=DB.todayItems('labo_actes');
+  const pharma=DB.todayItems('pharma_ventes');
+  const soins=DB.todayItems('soins');
+  el.innerHTML=`
+  <div class="card" id="cloture-print">
+    <div class="card-title">Fiche de clôture — ${new Date().toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long',year:'numeric'})}</div>
+    <div class="g2">
+      <div>
+        <table class="tw" style="width:100%">
+          <tr><th colspan="2" style="background:var(--vert)">Activités du jour</th></tr>
+          <tr><td>Patients enregistrés</td><td style="font-weight:700;text-align:right">${patients.length}</td></tr>
+          <tr><td>Consultations</td><td style="font-weight:700;text-align:right">${consults.length}</td></tr>
+          <tr><td>dont FPM (gratuites)</td><td style="text-align:right">${consults.filter(c=>c.statut==='FPM').length}</td></tr>
+          <tr><td>dont CMU</td><td style="text-align:right">${consults.filter(c=>c.statut==='CMU').length}</td></tr>
+          <tr><td>dont Non-assurés</td><td style="text-align:right">${consults.filter(c=>c.statut==='NA').length}</td></tr>
+          <tr><td>dont Visites de stage</td><td style="text-align:right">${consults.filter(c=>c.type==='STAGE').length}</td></tr>
+          <tr><td>Actes biologie</td><td style="font-weight:700;text-align:right">${labo.length}</td></tr>
+          <tr><td>Soins infirmiers</td><td style="font-weight:700;text-align:right">${soins.length}</td></tr>
+          <tr><td>Délivrances pharmacie</td><td style="font-weight:700;text-align:right">${pharma.length}</td></tr>
+        </table>
+      </div>
+      <div>
+        <table class="tw" style="width:100%">
+          <tr><th colspan="2" style="background:var(--or)">Situation financière</th></tr>
+          <tr><td>Total prestations brutes</td><td style="font-weight:700;text-align:right">${fmt(tx.reduce((s,t)=>s+t.montant,0))} F</td></tr>
+          <tr><td>Part CNAM (à facturer)</td><td style="color:var(--cmu);font-weight:700;text-align:right">${fmt(cnam)} F</td></tr>
+          <tr><td style="font-weight:700">TOTAL ENCAISSÉ</td><td style="font-weight:800;font-size:15px;color:var(--vert);text-align:right">${fmt(enc)} F</td></tr>
+          <tr><td>dont Accueil</td><td style="text-align:right">${fmt(tx.filter(t=>t.service==='ACCUEIL').reduce((s,t)=>s+t.encaisse,0))} F</td></tr>
+          <tr><td>dont Labo (TM)</td><td style="text-align:right">${fmt(tx.filter(t=>t.service==='LABO').reduce((s,t)=>s+t.encaisse,0))} F</td></tr>
+          <tr><td>dont Soins (TM)</td><td style="text-align:right">${fmt(tx.filter(t=>t.service==='SOINS').reduce((s,t)=>s+t.encaisse,0))} F</td></tr>
+          <tr><td>dont Pharmacie (TM)</td><td style="text-align:right">${fmt(tx.filter(t=>t.service==='PHARMACIE').reduce((s,t)=>s+t.encaisse,0))} F</td></tr>
+        </table>
+      </div>
+    </div>
+    <div class="fs" style="margin-top:10px">
+      <div class="al al-info"><strong>Règle caisse</strong>Le montant physique doit être supérieur ou égal au montant attendu (les excédents sont autorisés).</div>
+      <div class="fr"><label>Montant physique en caisse (FCFA)</label><input type="number" id="clt-physique" placeholder="Comptage physique" oninput="calcEcart(${enc})"></div>
+      <div class="fr"><label>Écart</label><span id="clt-ecart-lbl" style="font-size:13px;font-weight:700">—</span></div>
+      <div class="fr"><label>Observations</label><input type="text" id="clt-obs" placeholder="Observations éventuelles..."></div>
+    </div>
+    <div class="fs">
+      <div class="fr"><label>Signature Caissière</label><input type="text" id="clt-sig1" placeholder="Nom + signature"></div>
+      <div class="fr"><label>Signature Responsable</label><input type="text" id="clt-sig2" placeholder="Nom + signature"></div>
+    </div>
+    <div class="btn-row no-print">
+      <button class="btn btn-success" onclick="validerCloture(${enc},${cnam})">Valider et enregistrer</button>
+      <button class="btn btn-print btn-sm" onclick="printSection('cloture-print')">Imprimer fiche</button>
+    </div>
+  </div>
+  <div id="clt-confirm"></div>`;
+};
+function calcEcart(expected){
+  const v=+document.getElementById('clt-physique').value||0;
+  const ecart=v-expected;
+  const el=document.getElementById('clt-ecart-lbl');
+  if(!el)return;
+  el.textContent=ecart===0?'✅ Conforme':ecart>0?`+ ${fmt(ecart)} F (excédent)`:`- ${fmt(Math.abs(ecart))} F (manque)`;
+  el.style.color=ecart===0?'var(--vert)':ecart>0?'var(--or)':'var(--rouge)';
+}
+function validerCloture(enc,cnam){
+  const physique=+document.getElementById('clt-physique').value||0;
+  const ecart=physique-enc;
+  const s1=document.getElementById('clt-sig1').value;
+  const s2=document.getElementById('clt-sig2').value;
+  if(!s1||!s2){alert('Les deux signatures sont obligatoires');return;}
+  if(physique<enc){
+    alert('Clôture refusée : le montant physique ne peut pas être inférieur au montant attendu.');
+    logAudit('CLOTURE_REJETEE',{enc_attendu:enc,physique,ecart,motif:'physique inferieur a attendu'});
+    return;
+  }
+  DB.push('clotures',{date:today(),enc_attendu:enc,physique,ecart,cnam_a_facturer:cnam,
+    observations:document.getElementById('clt-obs').value,sig_caissier:s1,sig_resp:s2,heure:new Date().toLocaleTimeString('fr-FR')});
+  logAudit('CLOTURE_CREATE',{enc_attendu:enc,physique,ecart,cnam_a_facturer:cnam,sig_caissier:s1,sig_resp:s2});
+  document.getElementById('clt-confirm').innerHTML=`
+    <div class="al ${ecart===0?'al-ok':ecart>0?'al-warn':'al-err'}">
+      <strong>${ecart===0?'✅ Clôture conforme':'⚠️ Clôture avec écart de '+fmt(Math.abs(ecart))+' FCFA'}</strong>
+      Enregistrée le ${new Date().toLocaleString('fr-FR')} | Caissière : ${s1}
+    </div>`;
+}
+
+VIEW['cpt-rapports'] = (el) => {
+  const allTx=DB.get('transactions');
+  const byDay={};
+  allTx.forEach(t=>{
+    const d=t.date||t.created_at?.slice(0,10)||today();
+    if(!byDay[d]){byDay[d]={enc:0,cnam:0,tot:0,nb:0};}
+    byDay[d].enc+=t.encaisse;byDay[d].cnam+=t.cnam;byDay[d].tot+=t.montant;byDay[d].nb++;
+  });
+  const days=Object.keys(byDay).sort().reverse().slice(0,21);
+  el.innerHTML=`
+  <div class="g2">
+    <div class="kpi" style="border-left-color:var(--or)"><div class="kpi-ico">💰</div><div class="kpi-lbl">Total encaissé (tout l'historique)</div><div class="kpi-val" style="font-size:16px;color:var(--or)">${fmt(allTx.reduce((s,t)=>s+t.encaisse,0))} FCFA</div></div>
+    <div class="kpi" style="border-left-color:var(--cmu)"><div class="kpi-ico">🏥</div><div class="kpi-lbl">Total CNAM à facturer</div><div class="kpi-val" style="font-size:16px;color:var(--cmu)">${fmt(allTx.reduce((s,t)=>s+t.cnam,0))} FCFA</div></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Rapports par journée (21 derniers jours)</div>
+    <div class="tw"><table>
+      <tr><th>Date</th><th>Opérations</th><th>Total prestations</th><th>Part CNAM</th><th>Encaissé direct</th><th>Taux CMU</th></tr>
+      ${days.map(d=>{const r=byDay[d];const taux=r.tot>0?Math.round(r.cnam/r.tot*100):0;
+        return `<tr><td style="font-weight:700">${fmtD(d)}</td><td style="text-align:center">${r.nb}</td>
+          <td>${fmt(r.tot)} F</td><td style="color:var(--cmu);font-weight:700">${fmt(r.cnam)} F</td>
+          <td style="color:var(--or);font-weight:700">${fmt(r.enc)} F</td>
+          <td><span class="badge ${taux>=70?'b-ok':taux>=50?'b-warn':'b-err'}">${taux}%</span></td></tr>`;}).join('')||'<tr><td colspan="6" style="text-align:center;color:#aaa">Aucune donnée</td></tr>'}
+    </table></div>
+  </div>`;
+};
+
+// ── MÉDECIN-CHEF — Dashboard ─────────────────────────────
+VIEW['chef-dashboard'] = (el) => {
+  const txT=DB.todayItems('transactions');
+  const enc=txT.reduce((s,t)=>s+t.encaisse,0);
+  const cnam=txT.reduce((s,t)=>s+t.cnam,0);
+  const tot=txT.reduce((s,t)=>s+t.montant,0);
+  const taux=tot>0?Math.round(cnam/tot*100):0;
+  const allTx=DB.get('transactions');
+  const weekData=[];
+  for(let i=6;i>=0;i--){
+    const d=new Date();d.setDate(d.getDate()-i);
+    const ds=d.toISOString().slice(0,10);
+    const dtx=allTx.filter(t=>(t.date||t.created_at?.slice(0,10))===ds);
+    weekData.push({label:['D','L','M','Me','J','V','S'][d.getDay()]+d.getDate(),
+      enc:dtx.reduce((s,t)=>s+t.encaisse,0),cnam:dtx.reduce((s,t)=>s+t.cnam,0),tot:dtx.reduce((s,t)=>s+t.montant,0)});
+  }
+  const pat=DB.todayItems('patients');
+  const cs=DB.todayItems('consultations');
+  const la=DB.todayItems('labo_actes');
+  const ph=DB.todayItems('pharma_ventes');
+  const so=DB.todayItems('soins');
+  const rejetsClotureToday=DB.todayItems('audit_logs').filter(l=>l.action==='CLOTURE_REJETEE');
+  const totalManqueRejete=rejetsClotureToday.reduce((s,l)=>s+Math.abs(l.details?.ecart||0),0);
+  el.innerHTML=`
+  ${renderCriticalBanner('Médecin-Chef')}
+  ${rejetsClotureToday.length?`<div class="al al-err"><strong>🚨 Alerte clôture :</strong> ${rejetsClotureToday.length} rejet(s) aujourd'hui (${fmt(totalManqueRejete)} FCFA de manque cumulé). Vérifier le module Traçabilité.</div>`:''}
+  <div class="g4">
+    <div class="kpi" style="border-left-color:var(--marine)"><div class="kpi-ico">💳</div><div class="kpi-lbl">Total jour</div><div class="kpi-val" style="color:var(--marine)">${fmt(tot)}</div><div class="kpi-sub">FCFA</div></div>
+    <div class="kpi" style="border-left-color:var(--cmu)"><div class="kpi-ico">🏥</div><div class="kpi-lbl">Part CNAM</div><div class="kpi-val" style="color:var(--cmu)">${fmt(cnam)}</div></div>
+    <div class="kpi" style="border-left-color:var(--or)"><div class="kpi-ico">💵</div><div class="kpi-lbl">Encaissé</div><div class="kpi-val" style="color:var(--or)">${fmt(enc)}</div></div>
+    <div class="kpi" style="border-left-color:${taux>=70?'var(--vert)':'var(--rouge)'}"><div class="kpi-ico">📊</div><div class="kpi-lbl">Taux CMU</div><div class="kpi-val" style="color:${taux>=70?'var(--vert)':'var(--rouge)'}">${taux}%</div><div class="kpi-sub">Obj. ≥ 70%</div></div>
+  </div>
+  <div class="g4">
+    <div class="kpi" style="border-left-color:var(--fpm)"><div class="kpi-ico">👥</div><div class="kpi-lbl">Patients</div><div class="kpi-val" style="color:var(--fpm)">${pat.length}</div></div>
+    <div class="kpi" style="border-left-color:var(--bleu)"><div class="kpi-ico">🩺</div><div class="kpi-lbl">Consultations</div><div class="kpi-val" style="color:var(--bleu)">${cs.length}</div></div>
+    <div class="kpi" style="border-left-color:var(--bleu)"><div class="kpi-ico">🔬</div><div class="kpi-lbl">Actes Labo</div><div class="kpi-val" style="color:var(--bleu)">${la.length}</div></div>
+    <div class="kpi" style="border-left-color:var(--orang)"><div class="kpi-ico">💊</div><div class="kpi-lbl">Pharma+Soins</div><div class="kpi-val" style="color:var(--orang)">${ph.length+so.length}</div></div>
+  </div>
+  <div class="g2">
+    <div class="card"><div class="card-title">Activités 7 jours</div><canvas id="ch-chef-w"></canvas></div>
+    <div class="card"><div class="card-title">Mix patients du jour</div><canvas id="ch-chef-s"></canvas></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Vue temps réel par service</div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
+      ${[
+        {lbl:'ACCUEIL',ico:'👥',v:pat.length+' pts / '+cs.length+' consult.',enc:txT.filter(t=>t.service==='ACCUEIL').reduce((s,t)=>s+t.encaisse,0),col:'var(--vert)'},
+        {lbl:'LABO',ico:'🔬',v:la.length+' dossiers',enc:txT.filter(t=>t.service==='LABO').reduce((s,t)=>s+t.encaisse,0),col:'var(--bleu)'},
+        {lbl:'SOINS',ico:'💉',v:so.length+' actes',enc:txT.filter(t=>t.service==='SOINS').reduce((s,t)=>s+t.encaisse,0),col:'var(--cyan)'},
+        {lbl:'PHARMACIE',ico:'💊',v:ph.length+' déliv.',enc:txT.filter(t=>t.service==='PHARMACIE').reduce((s,t)=>s+t.encaisse,0),col:'var(--orang)'},
+      ].map(s=>`
+        <div style="border-left:4px solid ${s.col};padding:10px;background:#f8f9fb;border-radius:8px">
+          <div style="font-weight:700;color:${s.col};font-size:11px">${s.ico} ${s.lbl}</div>
+          <div style="font-size:12px;margin:4px 0">${s.v}</div>
+          <div style="font-size:12px;font-weight:700;color:var(--or)">Encaissé : ${fmt(s.enc)} F</div>
+        </div>`).join('')}
+    </div>
+  </div>`;
+  setTimeout(()=>{
+    mkChart('ch-chef-w','bar',weekData.map(d=>d.label),
+      [{label:'Total',data:weekData.map(d=>d.tot),backgroundColor:'rgba(13,43,69,.7)',stack:'s'},
+       {label:'CNAM',data:weekData.map(d=>d.cnam),backgroundColor:'rgba(26,107,60,.7)',stack:'s'}]);
+    const fpm=cs.filter(c=>c.statut==='FPM').length,cmu=cs.filter(c=>c.statut==='CMU').length,na=cs.filter(c=>c.statut==='NA').length;
+    if(fpm+cmu+na>0) mkChart('ch-chef-s','doughnut',['FPM','CMU','Non-assuré'],
+      [{data:[fpm,cmu,na],backgroundColor:['#2E7D32','#1565C0','#6D4C41'],borderWidth:2,borderColor:'#fff'}]);
+  },100);
+};
+
+// CHEF — Alertes
+VIEW['chef-alertes'] = (el) => {
+  const stock=DB.getStock();
+  const alertes=stock.filter(m=>m.stock<=m.seuil);
+  const critiques=stock.filter(m=>m.stock<=Math.floor(m.seuil/2));
+  const txT=DB.todayItems('transactions');
+  const tot=txT.reduce((s,t)=>s+t.montant,0);
+  const cnam=txT.reduce((s,t)=>s+t.cnam,0);
+  const taux=tot>0?Math.round(cnam/tot*100):0;
+  const clotures=DB.get('clotures');
+  const derniereCloture=clotures[0];
+  const alerts=[];
+  if(critiques.length) alerts.push({t:'err',titre:'Stock CRITIQUE — Rupture imminente',msg:critiques.map(m=>m.nom+' : '+m.stock+' restants (seuil '+m.seuil+')').join(' | ')});
+  else if(alertes.length) alerts.push({t:'warn',titre:'Stock faible',msg:alertes.map(m=>m.nom+' ('+m.stock+')').join(', ')});
+  if(taux<60&&tot>0) alerts.push({t:'err',titre:`Taux CMU critique aujourd'hui : ${taux}%`,msg:'Vérifier la saisie des feuilles de soins et la transmission CNAM. Objectif ≥ 70%.'});
+  else if(taux<70&&tot>0) alerts.push({t:'warn',titre:`Taux CMU bas : ${taux}%`,msg:'Objectif 70% non atteint. Vérifier la facturation.'});
+  if(!derniereCloture||derniereCloture.date!==today()) alerts.push({t:'warn',titre:'Clôture journalière non effectuée',msg:'La clôture doit être réalisée avant 18h00 chaque jour.'});
+  if(derniereCloture&&derniereCloture.ecart!==0) alerts.push({t:'err',titre:`Écart de caisse non résolu : ${fmt(Math.abs(derniereCloture.ecart))} FCFA`,msg:`Date : ${derniereCloture.date} | Obs : ${derniereCloture.observations||'—'}`});
+  if(!alerts.length) alerts.push({t:'ok',titre:'Aucune alerte active','msg':'Toutes les vérifications sont satisfaisantes.'});
+  el.innerHTML=`
+  <div class="card">
+    <div class="card-title">Alertes & Surveillance — Temps réel</div>
+    <button class="btn btn-primary btn-sm no-print" onclick="showView('chef-alertes')" style="margin-bottom:10px">Actualiser</button>
+    ${alerts.map(a=>`<div class="al al-${a.t}"><strong>${a.titre}</strong>${a.msg}</div>`).join('')}
+  </div>
+  <div class="card">
+    <div class="card-title">Indicateurs pharmacie — Seuils d'alerte</div>
+    <div class="al al-info">Le Médecin-Chef peut modifier les seuils dans l'onglet "Gestion prix".</div>
+    ${stock.filter(m=>m.stock<=m.seuil*2).slice(0,10).map(m=>{
+      const pct=Math.min(100,m.seuil>0?Math.round(m.stock/m.seuil*100):100);
+      const col=m.stock<=m.seuil?'#E24B4A':m.stock<=m.seuil*1.5?'#EF9F27':'#63992280';
+      return `<div class="sk-row">
+        <div class="sk-name">${m.nom}</div>
+        <div class="sk-bw"><div class="sk-bar" style="width:${pct}%;background:${col}"></div></div>
+        <div class="sk-qty" style="color:${col}">${m.stock} / seuil ${m.seuil}</div>
+      </div>`;
+    }).join('')||'<p style="color:#aaa;text-align:center">Tous les stocks sont au-dessus des seuils ✅</p>'}
+  </div>
+  <div class="card">
+    <div class="card-title">Clôtures récentes</div>
+    <div class="tw"><table>
+      <tr><th>Date</th><th>Attendu</th><th>Physique</th><th>Écart</th><th>CNAM à facturer</th><th>Caissière</th></tr>
+      ${clotures.slice(0,7).map(c=>`<tr>
+        <td>${c.date}</td><td>${fmt(c.enc_attendu)} F</td><td>${fmt(c.physique)} F</td>
+        <td><span class="badge ${c.ecart===0?'b-ok':c.ecart>0?'b-warn':'b-err'}">${c.ecart===0?'✓':fmt(Math.abs(c.ecart))+' F'}</span></td>
+        <td style="color:var(--cmu)">${fmt(c.cnam_a_facturer||0)} F</td>
+        <td style="font-size:10px">${c.sig_caissier}</td>
+      </tr>`).join('')||'<tr><td colspan="6" style="text-align:center;color:#aaa">Aucune clôture</td></tr>'}
+    </table></div>
+  </div>`;
+};
+
+// CHEF — Dossiers patients
+VIEW['chef-patients'] = (el) => {
+  const patients=DB.get('patients').slice(0,100);
+  el.innerHTML=`
+  <div class="card">
+    <div class="card-title">Dossiers patients (${patients.length} enregistrés)</div>
+    <div class="sb"><input type="text" id="chef-search" placeholder="Rechercher un patient..." oninput="chefSearch()"></div>
+    <div id="chef-pat-results">
+      <div class="tw"><table>
+        <tr><th>Date</th><th>Nom</th><th>Genre</th><th>Statut</th><th>Bâtiment</th><th>Agent accueil</th><th>Consultations</th></tr>
+        ${patients.map(p=>{
+          const cs=DB.get('consultations').filter(c=>c.patient_id===p.id);
+          return `<tr>
+            <td>${fmtD(p.created_at)}</td>
+            <td style="font-weight:700">${p.nom}</td>
+            <td>${p.genre||'—'}</td>
+            <td>${badge(p.statut_simple||p.statut)}</td>
+            <td style="font-size:11px">${p.batiment||'—'}</td>
+            <td style="font-size:10px;color:var(--muted)">${p.agent_nom}</td>
+            <td style="text-align:center">${cs.length}</td>
+          </tr>`;
+        }).join('')||'<tr><td colspan="7" style="text-align:center;color:#aaa">Aucun patient</td></tr>'}
+      </table></div>
+    </div>
+  </div>`;
+};
+function chefSearch(){
+  const q=document.getElementById('chef-search').value.toLowerCase();
+  const patients=DB.get('patients').filter(p=>p.nom.toLowerCase().includes(q)).slice(0,20);
+  document.getElementById('chef-pat-results').innerHTML=`
+    <div class="tw"><table>
+      <tr><th>Date</th><th>Nom</th><th>Genre</th><th>Statut</th><th>Bâtiment</th><th>Agent</th><th>Consultations</th></tr>
+      ${patients.map(p=>{const cs=DB.get('consultations').filter(c=>c.patient_id===p.id);return `<tr>
+        <td>${fmtD(p.created_at)}</td><td style="font-weight:700">${p.nom}</td><td>${p.genre||'—'}</td>
+        <td>${badge(p.statut_simple||p.statut)}</td><td style="font-size:11px">${p.batiment||'—'}</td>
+        <td style="font-size:10px;color:var(--muted)">${p.agent_nom}</td><td style="text-align:center">${cs.length}</td>
+      </tr>`;}).join('')||'<tr><td colspan="7" style="text-align:center;color:#aaa">Aucun résultat</td></tr>'}
+    </table></div>`;
+}
+
+// CHEF — Dossier patient complet
+VIEW['chef-dossier'] = (el) => {
+  el.innerHTML=`
+  <div class="card">
+    <div class="card-title">Consultation dossier patient complet</div>
+    <div class="sb"><input type="text" id="chef-doss-search" placeholder="Rechercher patient..." oninput="chefDossierSearch()"></div>
+    <div id="chef-doss-results" style="max-height:120px;overflow-y:auto"></div>
+    <div id="chef-doss-view"></div>
+  </div>`;
+};
+function chefDossierSearch(){
+  const q=(document.getElementById('chef-doss-search').value||'').toLowerCase();
+  const res=document.getElementById('chef-doss-results');
+  if(q.length<2){res.innerHTML='';return;}
+  const pts=DB.get('patients').filter(p=>p.nom.toLowerCase().includes(q)).slice(0,10);
+  res.innerHTML=pts.map(p=>`<div class="pat-card" onclick="openChefDossier('${p.id}')"><div class="pat-av">${p.nom[0]}</div><div style="flex:1"><div style="font-weight:700">${escHtml(p.nom)}</div><div style="font-size:10px;color:var(--muted)">${escHtml(p.dossier_no||'—')}</div></div>${badge(p.statut_simple||p.statut)}</div>`).join('')||'<p style="color:#aaa;text-align:center">Aucun patient</p>';
+}
+function openChefDossier(pid){
+  const p=getPatientById(pid); if(!p) return;
+  const cs=DB.get('consultations').filter(x=>x.patient_id===pid);
+  const cst=DB.get('constantes').filter(x=>x.patient_id===pid);
+  const soins=DB.get('soins').filter(x=>x.patient_id===pid);
+  const obs=DB.get('observations').filter(x=>(x.patient_id&&x.patient_id===pid)||x.patient_nom===p.nom);
+  const ph=DB.get('pharma_ventes').filter(x=>x.patient_nom===p.nom);
+  const lab=DB.get('labo_actes').filter(x=>(x.patient_id&&x.patient_id===pid)||x.patient_nom===p.nom);
+  const timeline=[];
+  cs.forEach(c=>timeline.push({id:c.id,dt:c.created_at,type:'CONSULT',txt:`${c.type} / ${c.agent_nom||'?'}`}));
+  cst.forEach(c=>timeline.push({id:c.id,dt:c.created_at,type:'CONST',txt:`T°${c.temperature||'—'} TA ${c.ta||'—'} SpO2 ${c.spo2||'—'} IMC ${c.imc||'—'}`}));
+  soins.forEach(s=>timeline.push({id:s.id,dt:s.created_at,type:'SOINS',txt:`${(s.actes||[]).map(a=>a.nom).join(', ')||'Actes'} (${fmt(s.total||0)} F)`}));
+  lab.forEach(l=>timeline.push({id:l.id,dt:l.created_at,type:'LABO',txt:`${(l.actes||[]).map(a=>a.code).join(', ')||'Actes labo'} (${fmt(l.total||0)} F)`}));
+  ph.forEach(v=>timeline.push({id:v.id,dt:v.created_at,type:'PHARMA',txt:`Délivrance (${fmt(v.total||0)} F)`}));
+  obs.forEach(o=>timeline.push({id:o.id,dt:o.created_at,type:'OBS',txt:`Observation ${o.statut_obs||'EN COURS'} (${o.nb_jours||1}j)`}));
+  timeline.sort((a,b)=>String(b.dt||'').localeCompare(String(a.dt||'')));
+  document.getElementById('chef-doss-view').innerHTML=`
+    <div class="fs"><div class="fs-title">Identité</div>
+      <div class="recu-line"><span>Dossier</span><span>${escHtml(p.dossier_no||'—')}</span></div>
+      <div class="recu-line"><span>Patient</span><span><strong>${escHtml(p.nom)}</strong></span></div>
+      <div class="recu-line"><span>Antécédents</span><span>${escHtml(p.antecedents||'—')}</span></div>
+      <div class="recu-line"><span>Droits</span><span>${p.droits_verifies==='1'?'Vérifiés':'Non vérifiés'}</span></div>
+    </div>
+    <div class="fs"><div class="fs-title">Historique clinique</div>
+      <div style="font-size:11px"><strong>Consultations (${cs.length})</strong>: ${cs.map(c=>`${fmtD(c.created_at)} ${c.type} / ${c.agent_nom||'?'}`).join(' | ')||'—'}</div>
+      <div style="font-size:11px;margin-top:6px"><strong>Constantes (${cst.length})</strong>: ${cst.map(c=>`${fmtD(c.created_at)} T°${c.temperature||'—'} TA ${c.ta||'—'} SpO2 ${c.spo2||'—'} IMC ${c.imc||'—'}`).join(' | ')||'—'}</div>
+      <div style="font-size:11px;margin-top:6px"><strong>Soins (${soins.length})</strong>: ${soins.map(s=>`${fmtD(s.created_at)} ${s.actes?.map(a=>a.nom).join(', ')||'—'}`).join(' | ')||'—'}</div>
+      <div style="font-size:11px;margin-top:6px"><strong>Pharmacie (${ph.length})</strong>: ${ph.map(v=>`${fmtD(v.created_at)} ${fmt(v.total)} F`).join(' | ')||'—'}</div>
+      <div style="font-size:11px;margin-top:6px"><strong>Labo (${lab.length})</strong>: ${lab.map(v=>`${fmtD(v.created_at)} ${fmt(v.total||0)} F`).join(' | ')||'—'}</div>
+      <div style="font-size:11px;margin-top:6px"><strong>Observation (${obs.length})</strong>: ${obs.map(v=>`${fmtD(v.created_at)} ${v.statut_obs||'EN COURS'}`).join(' | ')||'—'}</div>
+    </div>
+    <div class="fs"><div class="fs-title">Timeline patient</div>
+      <div style="max-height:280px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:8px;background:#fff">
+      ${timeline.map(t=>`<div style="padding:6px 0;border-bottom:1px dashed #eee"><span class="badge b-ok" style="margin-right:6px">${t.type}</span><strong>${fmtD(t.dt)} ${fmtT(t.dt)}</strong><br><span style="font-size:11px">${escHtml(t.txt)}</span><div style="margin-top:4px"><button class="btn btn-sm btn-print" onclick="openTimelineDetail('${t.type}','${t.id}')">Ouvrir détail</button></div></div>`).join('')||'<div style="color:#aaa">Aucune activité</div>'}
+      </div>
+      <div id="chef-timeline-detail" style="margin-top:10px"></div>
+    </div>`;
+}
+
+function openTimelineDetail(type,id){
+  const zone=document.getElementById('chef-timeline-detail');
+  if(!zone) return;
+  let item=null, html='';
+  if(type==='CONSULT'){
+    item=DB.get('consultations').find(x=>x.id===id);
+    if(!item) return;
+    html=`<div class="card"><div class="card-title">Détail consultation</div><div class="recu">
+      <div class="recu-line"><span>Date</span><span>${fmtD(item.created_at)} ${fmtT(item.created_at)}</span></div>
+      <div class="recu-line"><span>Patient</span><span>${escHtml(item.patient_nom||'—')}</span></div>
+      <div class="recu-line"><span>Type</span><span>${escHtml(item.type||'—')}</span></div>
+      <div class="recu-line"><span>Praticien</span><span>${escHtml(item.praticien||'—')}</span></div>
+      <div style="font-size:11px;margin-top:6px"><strong>Motif:</strong> ${escHtml(item.motif||'—')}</div>
+      <div style="font-size:11px;margin-top:6px"><strong>Ordonnance:</strong> ${escHtml(item.ordonnance||'—')}</div>
+    </div></div>`;
+  } else if(type==='CONST'){
+    item=DB.get('constantes').find(x=>x.id===id);
+    if(!item) return;
+    html=`<div class="card"><div class="card-title">Détail constantes</div><div class="recu">
+      <div class="recu-line"><span>Date</span><span>${fmtD(item.created_at)} ${fmtT(item.created_at)}</span></div>
+      <div class="recu-line"><span>T°</span><span>${escHtml(item.temperature||'—')} °C</span></div>
+      <div class="recu-line"><span>TA</span><span>${escHtml(item.ta||'—')}</span></div>
+      <div class="recu-line"><span>SpO2</span><span>${escHtml(item.spo2||'—')} %</span></div>
+      <div class="recu-line"><span>IMC</span><span>${escHtml(item.imc||'—')}</span></div>
+      <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">${getAlertFlags(item).map(alertBadge).join('')}</div>
+    </div></div>`;
+  } else if(type==='SOINS'){
+    item=DB.get('soins').find(x=>x.id===id);
+    if(!item) return;
+    html=`<div class="card"><div class="card-title">Détail soins</div><div class="recu">
+      <div class="recu-line"><span>Date</span><span>${fmtD(item.created_at)} ${fmtT(item.created_at)}</span></div>
+      <div class="recu-line"><span>Patient</span><span>${escHtml(item.patient_nom||'—')}</span></div>
+      <div style="font-size:11px;margin-top:6px"><strong>Actes:</strong> ${escHtml((item.actes||[]).map(a=>a.nom+' x'+a.qte).join(', ')||'—')}</div>
+      <div class="recu-line"><span>Total</span><span>${fmt(item.total||0)} F</span></div>
+      <div style="font-size:11px;margin-top:6px"><strong>Observations:</strong> ${escHtml(item.observations||'—')}</div>
+    </div></div>`;
+  } else if(type==='LABO'){
+    item=DB.get('labo_actes').find(x=>x.id===id);
+    if(!item) return;
+    html=`<div class="card"><div class="card-title">Détail labo</div><div class="recu">
+      <div class="recu-line"><span>Date</span><span>${fmtD(item.created_at)} ${fmtT(item.created_at)}</span></div>
+      <div class="recu-line"><span>Patient</span><span>${escHtml(item.patient_nom||'—')}</span></div>
+      <div style="font-size:11px;margin-top:6px"><strong>Actes:</strong> ${escHtml((item.actes||[]).map(a=>a.code).join(', ')||'—')}</div>
+      <div class="recu-line"><span>Total</span><span>${fmt(item.total||0)} F</span></div>
+      <div style="font-size:11px;margin-top:6px"><strong>Résultat:</strong> ${escHtml(item.resultat||'—')}</div>
+    </div></div>`;
+  } else if(type==='PHARMA'){
+    item=DB.get('pharma_ventes').find(x=>x.id===id);
+    if(!item) return;
+    html=`<div class="card"><div class="card-title">Détail pharmacie</div><div class="recu">
+      <div class="recu-line"><span>Date</span><span>${fmtD(item.created_at)} ${fmtT(item.created_at)}</span></div>
+      <div class="recu-line"><span>Patient</span><span>${escHtml(item.patient_nom||'—')}</span></div>
+      <div style="font-size:11px;margin-top:6px"><strong>Médicaments:</strong> ${escHtml((item.items||[]).map(i=>i.nom+' x'+i.qte).join(', ')||'—')}</div>
+      <div class="recu-line"><span>Total</span><span>${fmt(item.total||0)} F</span></div>
+    </div></div>`;
+  } else if(type==='OBS'){
+    item=DB.get('observations').find(x=>x.id===id);
+    if(!item) return;
+    html=`<div class="card"><div class="card-title">Détail observation</div><div class="recu">
+      <div class="recu-line"><span>Patient</span><span>${escHtml(item.patient_nom||'—')}</span></div>
+      <div class="recu-line"><span>Admission</span><span>${fmtD(item.date_admission||item.created_at)}</span></div>
+      <div class="recu-line"><span>Sortie</span><span>${item.date_sortie?fmtD(item.date_sortie):'—'}</span></div>
+      <div class="recu-line"><span>Statut</span><span>${escHtml(item.statut_obs||'EN COURS')}</span></div>
+      <div style="font-size:11px;margin-top:6px"><strong>Motif:</strong> ${escHtml(item.motif||'—')}</div>
+      <div style="font-size:11px;margin-top:6px"><strong>Surveillance:</strong> ${(item.surveillance_logs||[]).length} entrée(s)</div>
+    </div></div>`;
+  }
+  zone.innerHTML=html;
+}
+
+// CHEF — Statistiques
+VIEW['chef-mensuel'] = (el) => {
+  const allTx=DB.get('transactions');
+  const byDay={};
+  allTx.forEach(t=>{
+    const d=t.date||t.created_at?.slice(0,10);if(!d)return;
+    if(!byDay[d]){byDay[d]={tot:0,cnam:0,enc:0,nb:0,labo:0,pharma:0,accueil:0,soins:0};}
+    byDay[d].tot+=t.montant;byDay[d].cnam+=t.cnam;byDay[d].enc+=t.encaisse;byDay[d].nb++;
+    byDay[d][t.service?.toLowerCase()]=(byDay[d][t.service?.toLowerCase()]||0)+t.montant;
+  });
+  const days=Object.keys(byDay).sort();
+  const totAll=days.reduce((s,d)=>s+byDay[d].tot,0);
+  const totCnam=days.reduce((s,d)=>s+byDay[d].cnam,0);
+  el.innerHTML=`
+  <div class="g3">
+    <div class="kpi" style="border-left-color:var(--marine)"><div class="kpi-ico">💳</div><div class="kpi-lbl">Total (historique)</div><div class="kpi-val" style="font-size:16px;color:var(--marine)">${fmt(totAll)} FCFA</div></div>
+    <div class="kpi" style="border-left-color:var(--cmu)"><div class="kpi-ico">🏥</div><div class="kpi-lbl">Total CNAM</div><div class="kpi-val" style="font-size:16px;color:var(--cmu)">${fmt(totCnam)} FCFA</div></div>
+    <div class="kpi" style="border-left-color:var(--or)"><div class="kpi-ico">📅</div><div class="kpi-lbl">Jours d'activité</div><div class="kpi-val" style="color:var(--or)">${days.length}</div></div>
+  </div>
+  <div class="card"><div class="card-title">Évolution (30 derniers jours)</div><canvas id="ch-mensuel-ev"></canvas></div>
+  <div class="card">
+    <div class="card-title">Tableau détaillé par jour</div>
+    <div class="tw"><table>
+      <tr><th>Date</th><th>Ops</th><th>Total</th><th>Labo</th><th>Pharma</th><th>Soins</th><th>CNAM</th><th>Encaissé</th><th>Taux</th></tr>
+      ${days.slice().reverse().map(d=>{const r=byDay[d],tx=r.tot>0?Math.round(r.cnam/r.tot*100):0;
+        return `<tr><td style="font-weight:700">${fmtD(d)}</td><td style="text-align:center">${r.nb}</td>
+          <td>${fmt(r.tot)} F</td><td style="color:var(--bleu)">${fmt(r.labo||0)} F</td>
+          <td style="color:var(--orang)">${fmt(r.pharmacie||0)} F</td>
+          <td style="color:var(--cyan)">${fmt(r.soins||0)} F</td>
+          <td style="color:var(--cmu);font-weight:700">${fmt(r.cnam)} F</td>
+          <td style="color:var(--or);font-weight:700">${fmt(r.enc)} F</td>
+          <td><span class="badge ${tx>=70?'b-ok':tx>=50?'b-warn':'b-err'}">${tx}%</span></td>
+        </tr>`;}).join('')||'<tr><td colspan="9" style="text-align:center;color:#aaa">Aucune donnée</td></tr>'}
+      ${days.length?`<tr class="tr-tot"><td colspan="2">TOTAL</td><td>${fmt(totAll)} F</td><td></td><td></td><td></td><td>${fmt(totCnam)} F</td><td>${fmt(days.reduce((s,d)=>s+byDay[d].enc,0))} F</td><td>${totAll>0?Math.round(totCnam/totAll*100):0}%</td></tr>`:''}
+    </table></div>
+  </div>`;
+  setTimeout(()=>{
+    if(days.length) mkChart('ch-mensuel-ev','line',days.slice(-30),
+      [{label:'Total',data:days.slice(-30).map(d=>byDay[d].tot),borderColor:'#0D2B45',backgroundColor:'rgba(13,43,69,.07)',fill:true,tension:.4,pointRadius:3,borderWidth:2},
+       {label:'CNAM',data:days.slice(-30).map(d=>byDay[d].cnam),borderColor:'#1A6B3C',backgroundColor:'rgba(26,107,60,.06)',fill:true,tension:.4,pointRadius:3,borderWidth:2},
+       {label:'Encaissé',data:days.slice(-30).map(d=>byDay[d].enc),borderColor:'#B8860B',tension:.4,pointRadius:3,borderWidth:2}]);
+  },100);
+};
+
+// CHEF — Gestion prix (accès exclusif)
+VIEW['chef-prix'] = (el) => {
+  const stock=DB.getStock();
+  el.innerHTML=`
+  <div class="al al-info"><strong>Accès exclusif Médecin-Chef</strong>Vous pouvez modifier les prix de cession, les prix CMU (+15% automatique), les prix Non-assurés, et les seuils d'alerte. Modifications tracées et immédiates.</div>
+  <div class="al al-warn"><strong>Rappel</strong>Prix CMU = Prix de cession × 1.15 (calculé automatiquement). Le prix de vente FPM = prix de cession (100% couvert par l'État).</div>
+  <div class="card">
+    <div class="card-title">Modifier les prix et seuils</div>
+    <div class="tw"><table>
+      <tr><th>Médicament</th><th>Catég.</th><th>Prix achat</th><th>Prix cession</th><th>Prix NA</th><th>Prix CMU (+15%)</th><th>Seuil alerte</th><th>Action</th></tr>
+      ${stock.map((m,i)=>`<tr>
+        <td style="font-size:11px;font-weight:700">${m.nom}</td>
+        <td style="font-size:10px;color:var(--muted)">${m.categorie}</td>
+        <td>${fmt(m.px_achat)} F</td>
+        <td><input type="number" id="px-c-${m.id}" value="${m.px_cession}" min="0" style="width:80px;padding:4px;border:1.5px solid var(--border);border-radius:6px" onchange="autoCalcCMU('${m.id}')"></td>
+        <td><input type="number" id="px-na-${m.id}" value="${pxNA(m)}" min="0" style="width:80px;padding:4px;border:1.5px solid var(--border);border-radius:6px"></td>
+        <td style="color:var(--cmu);font-weight:700" id="px-cmu-${m.id}">${fmt(pxCMU(m))} F</td>
+        <td><input type="number" id="seuil-${m.id}" value="${m.seuil}" min="0" style="width:60px;padding:4px;border:1.5px solid var(--border);border-radius:6px"></td>
+        <td><button class="btn btn-sm btn-success" onclick="savePrix('${m.id}')">Sauver</button></td>
+      </tr>`).join('')}
+    </table></div>
+    <div class="btn-row">
+      <button class="btn btn-warn" onclick="saveAllPrix()">Sauvegarder tous les prix</button>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title">Changer le code PIN du Médecin-Chef</div>
+    <div class="fr"><label>Nouveau PIN (4 chiffres)</label><input type="password" id="new-pin" maxlength="4" placeholder="XXXX" style="width:100px"></div>
+    <div class="fr"><label>Confirmer</label><input type="password" id="new-pin2" maxlength="4" placeholder="XXXX" style="width:100px"></div>
+    <div class="btn-row"><button class="btn btn-primary" onclick="changePIN()">Changer mon PIN</button></div>
+    <div id="pin-change-msg"></div>
+  </div>`;
+};
+function autoCalcCMU(id){
+  const v=+document.getElementById('px-c-'+id).value||0;
+  const el=document.getElementById('px-cmu-'+id);
+  if(el) el.textContent=fmt(Math.round(v*1.15))+' F';
+}
+function savePrix(id){
+  const stock=DB.getStock();
+  const idx=stock.findIndex(m=>m.id===id);
+  if(idx>=0){
+    const before={px_cession:stock[idx].px_cession,px_na:pxNA(stock[idx]),seuil:stock[idx].seuil};
+    stock[idx].px_cession=+document.getElementById('px-c-'+id).value||0;
+    stock[idx].px_na=+document.getElementById('px-na-'+id).value||0;
+    stock[idx].seuil=+document.getElementById('seuil-'+id).value||0;
+    DB.setStock(stock);
+    logAudit('PRIX_UPDATE',{medicament:stock[idx].nom,med_id:id,before,after:{px_cession:stock[idx].px_cession,px_na:stock[idx].px_na,seuil:stock[idx].seuil}});
+    document.getElementById('px-cmu-'+id).textContent=fmt(Math.round(stock[idx].px_cession*1.15))+' F';
+    document.getElementById('px-cmu-'+id).style.background='#e8f5e9';
+    setTimeout(()=>{if(document.getElementById('px-cmu-'+id))document.getElementById('px-cmu-'+id).style.background='';},1500);
+  }
+}
+function saveAllPrix(){
+  const stock=DB.getStock();
+  stock.forEach(m=>{
+    const px=document.getElementById('px-c-'+m.id);
+    const pxna=document.getElementById('px-na-'+m.id);
+    const seuil=document.getElementById('seuil-'+m.id);
+    if(px) m.px_cession=+px.value||m.px_cession;
+    if(pxna) m.px_na=+pxna.value||m.px_na||m.px_cession;
+    if(seuil) m.seuil=+seuil.value||m.seuil;
+  });
+  DB.setStock(stock);
+  logAudit('PRIX_UPDATE_BULK',{items:stock.length});
+  alert('Tous les prix ont été sauvegardés ✅');
+  showView('chef-prix');
+}
+function changePIN(){
+  const p1=document.getElementById('new-pin').value;
+  const p2=document.getElementById('new-pin2').value;
+  const el=document.getElementById('pin-change-msg');
+  if(p1.length!==4||!/^\d+$/.test(p1)){el.innerHTML='<div class="al al-err">Le PIN doit être composé de 4 chiffres exactement</div>';return;}
+  if(p1!==p2){el.innerHTML='<div class="al al-err">Les deux codes ne correspondent pas</div>';return;}
+  localStorage.setItem('csa2_pin_MED',p1);
+  logAudit('PIN_CHANGE',{agent:'MED'});
+  el.innerHTML='<div class="al al-ok"><strong>✅ PIN mis à jour avec succès</strong>Votre nouveau code sera actif à la prochaine connexion.</div>';
+}
+
+// CHEF - Traçabilité (anti-fraude)
+VIEW['chef-audit'] = (el) => {
+  const logs=DB.get('audit_logs');
+  const q=(document.getElementById('audit-search')?.value||'').toLowerCase();
+  const dateFilter=document.getElementById('audit-date')?.value||'';
+  const agentFilter=document.getElementById('audit-agent')?.value||'';
+  const actionFilter=document.getElementById('audit-action')?.value||'';
+  const actions=[...new Set(logs.map(l=>l.action).filter(Boolean))].sort();
+  const agents=[...new Set(logs.map(l=>l.agent_nom).filter(Boolean))].sort();
+  const filtered=logs.filter(l=>{
+    if(q && !JSON.stringify(l).toLowerCase().includes(q)) return false;
+    if(dateFilter && (l.date||l.created_at?.slice(0,10))!==dateFilter) return false;
+    if(agentFilter && (l.agent_nom||'')!==agentFilter) return false;
+    if(actionFilter && (l.action||'')!==actionFilter) return false;
+    return true;
+  }).slice(0,500);
+  el.innerHTML=`
+  <div class="card">
+    <div class="card-title">Journal d'audit central (${filtered.length})</div>
+    <div class="al al-info"><strong>Traçabilité Médecin-Chef</strong>Toutes les opérations sensibles sont horodatées avec agent, action et détails.</div>
+    <div class="fr no-print" style="margin-bottom:10px">
+      <label>Recherche</label><input type="text" id="audit-search" placeholder="Agent, action, patient, médicament..." oninput="showView('chef-audit')">
+      <label>Date</label><input type="date" id="audit-date" value="${dateFilter}" onchange="showView('chef-audit')">
+      <label>Agent</label>
+      <select id="audit-agent" onchange="showView('chef-audit')">
+        <option value="">Tous</option>
+        ${agents.map(a=>`<option value="${escHtml(a)}" ${agentFilter===a?'selected':''}>${escHtml(a)}</option>`).join('')}
+      </select>
+      <label>Action</label>
+      <select id="audit-action" onchange="showView('chef-audit')">
+        <option value="">Toutes</option>
+        ${actions.map(a=>`<option value="${escHtml(a)}" ${actionFilter===a?'selected':''}>${escHtml(a)}</option>`).join('')}
+      </select>
+      <button class="btn btn-primary btn-sm" onclick="exportCSV('audit_logs','audit_'+today()+'.csv')">📥 Export audit (CSV)</button>
+    </div>
+    <div class="tw"><table>
+      <tr><th>Date</th><th>Heure</th><th>Agent</th><th>Rôle</th><th>Action</th><th>Détails</th></tr>
+      ${filtered.map(l=>`<tr>
+        <td>${fmtD(l.created_at||l.date)}</td>
+        <td>${l.heure||fmtT(l.created_at)}</td>
+        <td style="font-size:11px">${escHtml(l.agent_nom||'—')}</td>
+        <td style="font-size:10px;color:var(--muted)">${escHtml(l.role||'—')}</td>
+        <td><span class="badge ${l.action==='CLOTURE_REJETEE'?'b-err':'b-warn'}">${escHtml(l.action||'—')}</span></td>
+        <td style="font-size:10px">${escHtml(JSON.stringify(l.details||{}))}</td>
+      </tr>`).join('')||'<tr><td colspan="6" style="text-align:center;color:#aaa">Aucune trace</td></tr>'}
+    </table></div>
+  </div>`;
+};
+
+// CHEF — Exports
+VIEW['chef-exports'] = (el) => {
+  el.innerHTML=`
+  <div class="card">
+    <div class="card-title">Exports des données</div>
+    <div class="g2">
+      <button class="btn btn-primary" style="padding:14px" onclick="exportCSV('transactions','transactions_'+today()+'.csv')">📥 Transactions (CSV)</button>
+      <button class="btn btn-primary" style="padding:14px" onclick="exportCSV('labo_actes','biologie_cmu_'+today()+'.csv')">📥 Biologie CMU (CSV)</button>
+      <button class="btn btn-primary" style="padding:14px" onclick="exportCSV('consultations','consultations_'+today()+'.csv')">📥 Consultations (CSV)</button>
+      <button class="btn btn-primary" style="padding:14px" onclick="exportCSV('pharma_ventes','pharmacie_'+today()+'.csv')">📥 Pharmacie (CSV)</button>
+      <button class="btn btn-primary" style="padding:14px" onclick="exportCSV('soins','soins_'+today()+'.csv')">📥 Soins infirmiers (CSV)</button>
+      <button class="btn btn-primary" style="padding:14px" onclick="exportCSV('clotures','clotures_'+today()+'.csv')">📥 Clôtures (CSV)</button>
+      <button class="btn btn-primary" style="padding:14px" onclick="exportCSV('audit_logs','audit_'+today()+'.csv')">📥 Audit (CSV)</button>
+    </div>
+    <hr style="margin:14px 0;border-color:var(--border)">
+    <div class="al al-warn"><strong>⚠️ Zone de réinitialisation</strong>Ces actions sont irréversibles.</div>
+    <div class="btn-row">
+      <button class="btn btn-danger" onclick="clearData()">Réinitialiser toutes les données</button>
+    </div>
+  </div>`;
+};
+function exportCSV(table,filename){
+  const data=DB.get(table);
+  if(!data.length){alert('Aucune donnée');return;}
+  const keys=Object.keys(data[0]);
+  const csv=[keys.join(','),...data.map(row=>keys.map(k=>{const v=row[k];if(typeof v==='object')return '"'+JSON.stringify(v).replace(/"/g,'""')+'"';return '"'+(v||'').toString().replace(/"/g,'""')+'"';}).join(','))].join('\n');
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'}));a.download=filename;a.click();
+}
+function clearData(){
+  if(!confirm('Supprimer TOUTES les données ? Irréversible.'))return;
+  logAudit('DATA_RESET_REQUEST',{by:CURRENT_AGENT?.nom||'?'});
+  ['patients','consultations','constantes','transactions','labo_actes','soins','observations','pharma_ventes','clotures','audit_logs'].forEach(k=>localStorage.removeItem('csa2_'+k));
+  localStorage.removeItem('csa2_sq');SYNC_Q=[];
+  alert('Données réinitialisées'); location.reload();
+}
+
+// ════════════════════════════════════════════════════════
+// SYNC & ONLINE
+// ════════════════════════════════════════════════════════
+function updateSyncStatus(){
+  const dot=document.getElementById('sync-dot');
+  const lbl=document.getElementById('sync-lbl');
+  const bar=document.getElementById('notif-bar');
+  if(!dot||!lbl||!bar) return;
+  if(!supa){
+    dot.className='sync-dot off';
+    lbl.textContent='Cloud OFF';
+    bar.style.display='block';
+    bar.textContent='⚠ Synchronisation cloud non configurée';
+    return;
+  }
+  if(!IS_ONLINE){
+    dot.className='sync-dot off';
+    lbl.textContent='Hors ligne';
+    bar.style.display='block';
+    bar.textContent='⚠ Hors connexion — Données en attente de synchronisation';
+    return;
+  }
+  if(LAST_SYNC_ERROR){
+    dot.className='sync-dot off';
+    lbl.textContent='Erreur sync';
+    bar.style.display='block';
+    bar.textContent=`⚠ Erreur de synchronisation: ${LAST_SYNC_ERROR}`;
+    return;
+  }
+  if(IS_SYNCING||SYNC_Q.length>0){
+    dot.className='sync-dot sync';
+    lbl.textContent='Sync...';
+    bar.style.display='none';
+    return;
+  }
+  dot.className='sync-dot';
+  lbl.textContent='En ligne';
+  bar.style.display='none';
+}
+function toCloudRow(op){
+  return {
+    event_key:`${op.table}:${op.item.id||Date.now()}`,
+    table_name:op.table,
+    item_id:String(op.item.id||''),
+    payload:op.item,
+    created_at:op.item.created_at||new Date().toISOString(),
+    agent_id:op.item.agent_id||CURRENT_AGENT?.id||null,
+    agent_nom:op.item.agent_nom||CURRENT_AGENT?.nom||null,
+    updated_at:new Date().toISOString(),
+  };
+}
+async function pushCloudRow(row){
+  const upsertRes = await supa.from(CLOUD_TABLE).upsert(row,{onConflict:'event_key'});
+  if(!upsertRes.error) return {ok:true};
+
+  const msg = String(upsertRes.error.message||'');
+  const code = String(upsertRes.error.code||'');
+  const noConflictTarget =
+    code==='42P10' ||
+    /no unique|no unique or exclusion|on conflict/i.test(msg);
+
+  if(noConflictTarget){
+    const ins = await supa.from(CLOUD_TABLE).insert(row);
+    if(!ins.error) return {ok:true,fallback:'insert'};
+    if(String(ins.error.code||'')==='23505') return {ok:true,fallback:'duplicate_ignored'};
+    return {ok:false,error:ins.error};
+  }
+  return {ok:false,error:upsertRes.error};
+}
+async function syncQueue(){
+  if(!supa||!IS_ONLINE||!SYNC_Q.length||IS_SYNCING)return;
+  IS_SYNCING=true;
+  updateSyncStatus();
+  try{
+    const done=[];
+    for(const op of SYNC_Q.slice(0,50)){
+      const row=toCloudRow(op);
+      const res=await pushCloudRow(row);
+      if(!res.ok){
+        LAST_SYNC_ERROR=res.error?.message||'Erreur Supabase';
+        break;
+      }
+      done.push(op);
+    }
+    SYNC_Q=SYNC_Q.filter(o=>!done.includes(o));
+    localStorage.setItem('csa2_sq',JSON.stringify(SYNC_Q.slice(-500)));
+    if(done.length>0 && SYNC_Q.length===0) LAST_SYNC_ERROR='';
+  }catch(e){
+    LAST_SYNC_ERROR=(e&&e.message)?e.message:'Erreur de synchronisation';
+  }finally{
+    IS_SYNCING=false;
+    updateSyncStatus();
+  }
+}
+async function pullFromCloud(){
+  if(!supa||!IS_ONLINE) return;
+  try{
+    const {data,error}=await supa
+      .from(CLOUD_TABLE)
+      .select('table_name,item_id,payload,created_at,updated_at')
+      .order('updated_at',{ascending:false})
+      .limit(20000);
+    if(error||!Array.isArray(data)) return;
+    SYNC_TABLES.forEach(table=>{
+      const rows=data.filter(r=>r.table_name===table&&r.payload&&typeof r.payload==='object');
+      if(!rows.length) return;
+      const byId=new Map();
+      rows.forEach(r=>{
+        const id=String(r.item_id||r.payload.id||'');
+        if(!id||byId.has(id)) return;
+        byId.set(id,r.payload);
+      });
+      const merged=Array.from(byId.values()).sort((a,b)=>String(b.created_at||'').localeCompare(String(a.created_at||'')));
+      DB.set(table,merged);
+    });
+    LAST_SYNC_ERROR='';
+    updateSyncStatus();
+  }catch(e){
+    LAST_SYNC_ERROR=(e&&e.message)?e.message:'Lecture cloud impossible';
+    updateSyncStatus();
+  }
+}
+window.addEventListener('online',()=>{IS_ONLINE=true;updateSyncStatus();syncQueue();});
+window.addEventListener('offline',()=>{IS_ONLINE=false;updateSyncStatus();});
+
+// ════════════════════════════════════════════════════════
+// HORLOGE
+// ════════════════════════════════════════════════════════
+function tick(){
+  const el=document.getElementById('clock-top');
+  if(el) el.textContent=new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+}
+function applyInstitutionLogo(){
+  const bind=(imgId,fallbackId)=>{
+    const img=document.getElementById(imgId);
+    const fb=document.getElementById(fallbackId);
+    if(!img) return;
+    img.src=INSTITUTION_LOGO_URL;
+    img.onerror=()=>{img.style.display='none'; if(fb) fb.style.display='inline-block';};
+    img.onload=()=>{img.style.display='block'; if(fb) fb.style.display='none';};
+  };
+  bind('auth-logo','auth-logo-fallback');
+  bind('top-logo','top-logo-fallback');
+}
+function applyCompactMode(){
+  document.body.classList.toggle('compact',COMPACT_MODE);
+  const btn=document.getElementById('compact-toggle');
+  if(btn){
+    btn.classList.toggle('active',COMPACT_MODE);
+    btn.textContent=COMPACT_MODE?'Compact ON':'Compact';
+  }
+}
+function toggleCompactMode(){
+  COMPACT_MODE=!COMPACT_MODE;
+  localStorage.setItem('csa2_compact',COMPACT_MODE?'1':'0');
+  applyCompactMode();
+}
+setInterval(tick,1000);tick();
+
+// ════════════════════════════════════════════════════════
+// INIT
+// ════════════════════════════════════════════════════════
+if(SUPABASE_URL&&!SUPABASE_URL.includes('VOTRE_PROJET')&&window.supabase){
+  try{supa=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);}catch(e){}
+}
+buildAgentList();
+applyInstitutionLogo();
+applyCompactMode();
+updateSyncStatus();
+pullFromCloud();
+syncQueue();
+setInterval(syncQueue,30000);
+setInterval(pullFromCloud,60000);
+</script>
+</body>
+</html>
