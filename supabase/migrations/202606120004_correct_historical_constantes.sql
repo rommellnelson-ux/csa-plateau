@@ -135,7 +135,9 @@ begin
 end;
 $$;
 
-create temporary table csa_constantes_fix on commit drop as
+drop table if exists pg_temp.csa_constantes_fix;
+
+create temporary table csa_constantes_fix as
 select
   e.event_key,
   e.item_id,
@@ -167,6 +169,8 @@ set
 from csa_constantes_fix f
 where e.event_key = f.event_key
   and e.payload is distinct from f.corrected_payload;
+
+drop table if exists pg_temp.csa_constantes_fix;
 
 revoke all on function public.csa_safe_number(text) from public;
 revoke all on function public.csa_normalize_constantes(jsonb) from public;
