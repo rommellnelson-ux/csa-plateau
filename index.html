@@ -472,7 +472,7 @@ const MODULE_TABS = {
   labo:   ['labo-saisie','labo-resultats','labo-feuilles'],
   pharmacie:['pha-vente','pha-stock','pha-tableau'],
   compta: ['cpt-caisse','cpt-cloture','cpt-rapports'],
-  chef:   ['chef-dashboard','acc-consultation','chef-patients','chef-dossier','chef-alertes','chef-mensuel','chef-prix','chef-audit','chef-exports'],
+  chef:   ['chef-dashboard','acc-consultation','chef-patients','chef-dossier','chef-pharmacie','chef-alertes','chef-mensuel','chef-prix','chef-audit','chef-exports'],
 };
 const PERMISSION_TABS = {
   accueil:MODULE_TABS.accueil,
@@ -489,7 +489,7 @@ const TAB_LABELS = {
   'labo-saisie':'Saisie actes','labo-resultats':'Résultats','labo-feuilles':'Feuilles CMU',
   'pha-vente':'Délivrance','pha-stock':'Stock','pha-tableau':'Tableau de bord',
   'cpt-caisse':'Caisse du jour','cpt-cloture':'Clôture','cpt-rapports':'Rapports',
-  'chef-dashboard':'Tableau de bord','chef-alertes':'Alertes','chef-patients':'Dossiers patients','chef-dossier':'Dossier complet','chef-mensuel':'Statistiques','chef-prix':'Gestion prix','chef-audit':'Traçabilité','chef-exports':'Exports',
+  'chef-dashboard':'Tableau de bord','chef-alertes':'Alertes','chef-patients':'Dossiers patients','chef-dossier':'Dossier complet','chef-pharmacie':'Pharmacie','chef-mensuel':'Statistiques','chef-prix':'Gestion prix','chef-audit':'Traçabilité','chef-exports':'Exports',
 };
 
 async function authLogin(event){
@@ -2439,6 +2439,75 @@ VIEW['chef-dashboard'] = (el) => {
     if(fpm+cmu+na>0) mkChart('ch-chef-s','doughnut',['FPM','CMU','Non-assuré'],
       [{data:[fpm,cmu,na],backgroundColor:['#2E7D32','#1565C0','#6D4C41'],borderWidth:2,borderColor:'#fff'}]);
   },100);
+};
+
+// CHEF — Détail pharmacie (lecture seule)
+VIEW['chef-pharmacie'] = (el) => {
+  const dateFilter=localStorage.getItem('chef-pharma-date')||today();
+  const search=(localStorage.getItem('chef-pharma-search')||'').toLowerCase();
+  const ventes=DB.get('pharma_ventes')
+    .filter(v=>(!dateFilter||(v.created_at||v.date||'').startsWith(dateFilter)))
+    .filter(v=>!search||[
+      v.patient_nom,v.ordonnance,v.agent_nom,v.origine,v.motif_entree_directe,
+      ...(Array.isArray(v.items)?v.items.map(i=>i.nom):[])
+    ].some(x=>String(x||'').toLowerCase().includes(search)));
+  const stock=DB.getStock();
+  const total=ventes.reduce((s,v)=>s+(+v.total||0),0);
+  const cnam=ventes.reduce((s,v)=>s+(+v.cnam||0),0);
+  const tm=ventes.reduce((s,v)=>s+(+v.tm||0),0);
+  const alertes=stock.filter(m=>(+m.stock||0)<=(+m.seuil||0));
+  el.innerHTML=`
+  <div class="g4" style="margin-bottom:12px">
+    <div class="kpi" style="border-left-color:var(--orang)"><div class="kpi-ico">💊</div><div class="kpi-lbl">Délivrances</div><div class="kpi-val" style="color:var(--orang)">${ventes.length}</div></div>
+    <div class="kpi" style="border-left-color:var(--marine)"><div class="kpi-ico">💰</div><div class="kpi-lbl">Valeur délivrée</div><div class="kpi-val" style="font-size:14px">${fmt(total)} F</div></div>
+    <div class="kpi" style="border-left-color:var(--cmu)"><div class="kpi-ico">🏥</div><div class="kpi-lbl">Part CNAM</div><div class="kpi-val" style="font-size:14px;color:var(--cmu)">${fmt(cnam)} F</div></div>
+    <div class="kpi" style="border-left-color:${alertes.length?'var(--rouge)':'var(--vert)'}"><div class="kpi-ico">📦</div><div class="kpi-lbl">Alertes stock</div><div class="kpi-val" style="color:${alertes.length?'var(--rouge)':'var(--vert)'}">${alertes.length}</div></div>
+  </div>
+  <div class="card no-print">
+    <div class="card-title">Consultation des opérations pharmacie</div>
+    <div class="fr">
+      <label>Date</label>
+      <input type="date" value="${escHtml(dateFilter)}" onchange="localStorage.setItem('chef-pharma-date',this.value);showView('chef-pharmacie')">
+      <label>Recherche</label>
+      <input type="text" value="${escHtml(localStorage.getItem('chef-pharma-search')||'')}" placeholder="Patient, ordonnance, médicament, agent..."
+        onchange="localStorage.setItem('chef-pharma-search',this.value);showView('chef-pharmacie')" style="flex:1">
+      <button class="btn btn-out btn-sm" onclick="localStorage.removeItem('chef-pharma-date');localStorage.removeItem('chef-pharma-search');showView('chef-pharmacie')">Tout afficher</button>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title">Délivrances détaillées — ${dateFilter||'Toutes les dates'}</div>
+    <div class="tw"><table>
+      <tr><th>Date/heure</th><th>Patient</th><th>Ordonnance</th><th>Origine</th><th>Médicaments délivrés</th><th>Total</th><th>CNAM</th><th>TM</th><th>Agent</th></tr>
+      ${ventes.map(v=>`<tr>
+        <td style="white-space:nowrap">${fmtD(v.created_at)} ${fmtT(v.created_at)}</td>
+        <td style="font-weight:700">${escHtml(v.patient_nom||'—')}<div style="font-size:9px">${badge(v.statut_facturation||v.statut)}</div></td>
+        <td>${escHtml(v.ordonnance||'—')}</td>
+        <td style="font-size:10px">${escHtml(v.origine||'ORIENTATION')}${v.motif_entree_directe?`<div style="color:var(--muted)">${escHtml(v.motif_entree_directe)}</div>`:''}</td>
+        <td style="min-width:250px">${(Array.isArray(v.items)?v.items:[]).map(i=>`
+          <div style="margin-bottom:3px"><strong>${escHtml(i.nom||'Médicament')}</strong> × ${fmt(+i.qte||0)}
+          <span style="color:var(--muted)">à ${fmt(+i.pu||0)} F = ${fmt(+i.montant||0)} F</span></div>`).join('')||'—'}</td>
+        <td style="font-weight:700">${fmt(+v.total||0)} F</td>
+        <td style="color:var(--cmu)">${fmt(+v.cnam||0)} F</td>
+        <td style="color:var(--or)">${fmt(+v.tm||0)} F</td>
+        <td style="font-size:10px">${escHtml(v.agent_nom||'—')}</td>
+      </tr>`).join('')||'<tr><td colspan="9" style="text-align:center;color:#aaa;padding:16px">Aucune délivrance pour ce filtre</td></tr>'}
+      ${ventes.length?`<tr class="tr-tot"><td colspan="5">TOTAL (${ventes.length} délivrance(s))</td><td>${fmt(total)} F</td><td>${fmt(cnam)} F</td><td>${fmt(tm)} F</td><td></td></tr>`:''}
+    </table></div>
+  </div>
+  <div class="card">
+    <div class="card-title">État actuel du stock — Lecture seule</div>
+    ${alertes.length?`<div class="al al-err"><strong>${alertes.length} article(s) au seuil ou en dessous</strong>${alertes.map(m=>`${escHtml(m.nom)} : ${fmt(+m.stock||0)} (seuil ${fmt(+m.seuil||0)})`).join(' | ')}</div>`:''}
+    <div class="tw"><table>
+      <tr><th>Médicament</th><th>DCI</th><th>Catégorie</th><th>Stock</th><th>Seuil</th><th>État</th><th>Prix cession</th><th>Prix CMU</th><th>Prix non-assuré</th></tr>
+      ${stock.map(m=>{
+        const low=(+m.stock||0)<=(+m.seuil||0);
+        return `<tr><td style="font-weight:700">${escHtml(m.nom||'—')}</td><td>${escHtml(m.dci||'—')}</td><td>${escHtml(m.categorie||'—')}</td>
+          <td style="font-weight:700;color:${low?'var(--rouge)':'var(--vert)'}">${fmt(+m.stock||0)} ${escHtml(m.unite||'')}</td>
+          <td>${fmt(+m.seuil||0)}</td><td><span class="badge ${low?'b-err':'b-ok'}">${low?'ALERTE':'OK'}</span></td>
+          <td>${fmt(+m.px_cession||0)} F</td><td>${fmt(pxCMU(m))} F</td><td>${fmt(pxNA(m))} F</td></tr>`;
+      }).join('')}
+    </table></div>
+  </div>`;
 };
 
 // CHEF — Alertes

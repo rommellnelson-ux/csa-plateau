@@ -1,4 +1,4 @@
-const CACHE = 'csa-plateau-v3-mfa';
+const CACHE = 'csa-plateau-v4-chef-pharmacie';
 const ASSETS = [
   './',
   './index.html',
