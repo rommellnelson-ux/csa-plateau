@@ -135,42 +135,31 @@ begin
 end;
 $$;
 
-drop table if exists pg_temp.csa_constantes_fix;
-
-create temporary table csa_constantes_fix as
-select
-  e.event_key,
-  e.item_id,
-  e.payload as original_payload,
-  normalized->'payload' as corrected_payload,
-  normalized->'reasons' as reasons
-from public.csa_events e
-cross join lateral public.csa_normalize_constantes(e.payload) normalized
-where e.table_name = 'constantes'
-  and jsonb_array_length(normalized->'reasons') > 0;
-
 insert into public.csa_data_corrections (
   migration_tag, event_key, item_id, original_payload, corrected_payload, reasons
 )
 select
   '202606120004',
-  event_key,
-  item_id,
-  original_payload,
-  corrected_payload,
-  reasons
-from csa_constantes_fix
+  e.event_key,
+  e.item_id,
+  e.payload,
+  normalized->'payload',
+  normalized->'reasons'
+from public.csa_events e
+cross join lateral public.csa_normalize_constantes(e.payload) normalized
+where e.table_name = 'constantes'
+  and jsonb_array_length(normalized->'reasons') > 0
 on conflict (migration_tag, event_key) do nothing;
 
 update public.csa_events e
 set
-  payload = f.corrected_payload,
+  payload = c.corrected_payload,
   updated_at = now()
-from csa_constantes_fix f
-where e.event_key = f.event_key
-  and e.payload is distinct from f.corrected_payload;
-
-drop table if exists pg_temp.csa_constantes_fix;
+from public.csa_data_corrections c
+where c.migration_tag = '202606120004'
+  and e.event_key = c.event_key
+  and e.payload = c.original_payload
+  and e.payload is distinct from c.corrected_payload;
 
 revoke all on function public.csa_safe_number(text) from public;
 revoke all on function public.csa_normalize_constantes(jsonb) from public;
