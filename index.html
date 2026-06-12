@@ -273,7 +273,7 @@ const SUPABASE_URL = 'https://wsnehnempnexzxzuklbv.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_FKlt6IevUM0nceNw13qiMA_OxMponku';
 const INSTITUTION_LOGO_URL = './assets/logo.png';
 const CLOUD_TABLE = 'csa_events';
-const SYNC_TABLES = ['patients','consultations','constantes','transactions','labo_actes','soins','observations','pharma_ventes','pharma_stock','clotures','audit_logs'];
+const SYNC_TABLES = ['patients','consultations','constantes','transactions','labo_actes','soins','observations','pharma_ventes','pharma_stock','pharma_lots','pharma_mouvements','pharma_inventaires','clotures','audit_logs'];
 let supa = null;
 let IS_ONLINE = navigator.onLine;
 let SYNC_Q = JSON.parse(localStorage.getItem('csa2_sq')||'[]');
@@ -457,6 +457,20 @@ const DB = {
     rows.forEach(item=>queueSync('pharma_stock',item));
     if(IS_ONLINE&&supa) syncQueue();
   },
+  getLots:()=>DB.get('pharma_lots'),
+  setLots:(lots)=>{
+    if(!CURRENT_AGENT) throw new Error('Session authentifiée requise');
+    const now=new Date().toISOString();
+    const rows=lots.map(l=>({...l,updated_at:now,agent_id:CURRENT_AGENT.id,agent_nom:CURRENT_AGENT.nom,synced:false}));
+    DB.set('pharma_lots',rows);
+    rows.forEach(item=>queueSync('pharma_lots',item));
+    if(IS_ONLINE&&supa) syncQueue();
+  },
+  setInventaires:(rows)=>{
+    DB.set('pharma_inventaires',rows);
+    rows.forEach(item=>queueSync('pharma_inventaires',item));
+    if(IS_ONLINE&&supa) syncQueue();
+  },
 };
 
 // ════════════════════════════════════════════════════════
@@ -470,7 +484,7 @@ const MODULE_TABS = {
   accueil:['acc-reception','acc-constantes','acc-consultation','acc-liste'],
   soins:  ['acc-consultation','soins-actes','soins-obs','soins-liste'],
   labo:   ['labo-saisie','labo-resultats','labo-feuilles'],
-  pharmacie:['pha-vente','pha-stock','pha-tableau'],
+  pharmacie:['pha-vente','pha-stock','pha-mouvements','pha-inventaire','pha-tableau'],
   compta: ['cpt-caisse','cpt-cloture','cpt-rapports'],
   chef:   ['chef-dashboard','acc-consultation','chef-patients','chef-dossier','chef-pharmacie','chef-alertes','chef-mensuel','chef-prix','chef-audit','chef-exports'],
 };
@@ -487,7 +501,7 @@ const TAB_LABELS = {
   'acc-reception':'Accueil patient','acc-constantes':'Constantes','acc-consultation':'Consultation','acc-liste':'File du jour',
   'soins-actes':'Réaliser soins','soins-obs':'Observation','soins-liste':'Soins du jour',
   'labo-saisie':'Saisie actes','labo-resultats':'Résultats','labo-feuilles':'Feuilles CMU',
-  'pha-vente':'Délivrance','pha-stock':'Stock','pha-tableau':'Tableau de bord',
+  'pha-vente':'Délivrance','pha-stock':'Stock & lots','pha-mouvements':'Mouvements','pha-inventaire':'Inventaire','pha-tableau':'Tableau de bord',
   'cpt-caisse':'Caisse du jour','cpt-cloture':'Clôture','cpt-rapports':'Rapports',
   'chef-dashboard':'Tableau de bord','chef-alertes':'Alertes','chef-patients':'Dossiers patients','chef-dossier':'Dossier complet','chef-pharmacie':'Pharmacie','chef-mensuel':'Statistiques','chef-prix':'Gestion prix','chef-audit':'Traçabilité','chef-exports':'Exports',
 };
@@ -712,6 +726,69 @@ function logAudit(action,details={}){
     role:CURRENT_AGENT?.role||'?',
     date:today(),
     heure:new Date().toLocaleTimeString('fr-FR')
+  });
+}
+function lotExpiryState(lot){
+  if(!lot?.date_peremption) return {label:'NON RENSEIGNÉE',cls:'b-warn',days:null};
+  const end=new Date(lot.date_peremption+'T23:59:59');
+  const days=Math.ceil((end-new Date())/86400000);
+  if(days<0) return {label:'PÉRIMÉ',cls:'b-err',days};
+  if(days<=30) return {label:`${days} j`,cls:'b-err',days};
+  if(days<=90) return {label:`${days} j`,cls:'b-warn',days};
+  return {label:`${days} j`,cls:'b-ok',days};
+}
+function ensureLotCoverage(med,lots){
+  const tracked=lots.filter(l=>l.med_id===med.id).reduce((s,l)=>s+(+l.quantite||0),0);
+  const missing=Math.max(0,(+med.stock||0)-tracked);
+  if(missing>0){
+    lots.push({
+      id:'LOT-LEGACY-'+med.id,
+      med_id:med.id,
+      medicament:med.nom,
+      numero_lot:'HISTORIQUE',
+      date_peremption:'',
+      fournisseur:'Stock antérieur',
+      quantite:missing,
+      quantite_initiale:missing,
+      created_at:new Date().toISOString()
+    });
+  }
+  return lots;
+}
+function consumeLots(med,lots,qty){
+  ensureLotCoverage(med,lots);
+  const available=lots
+    .filter(l=>l.med_id===med.id&&(+l.quantite||0)>0&&(!l.date_peremption||l.date_peremption>=today()))
+    .sort((a,b)=>{
+      const ad=a.date_peremption||'9999-12-31',bd=b.date_peremption||'9999-12-31';
+      return ad.localeCompare(bd)||String(a.created_at||'').localeCompare(String(b.created_at||''));
+    });
+  let remaining=qty;
+  const allocations=[];
+  for(const lot of available){
+    if(remaining<=0) break;
+    const used=Math.min(remaining,+lot.quantite||0);
+    lot.quantite=(+lot.quantite||0)-used;
+    remaining-=used;
+    allocations.push({lot_id:lot.id,numero_lot:lot.numero_lot||'—',date_peremption:lot.date_peremption||'',quantite:used});
+  }
+  if(remaining>0) throw new Error(`Lots insuffisants pour ${med.nom}`);
+  return allocations;
+}
+function recordStockMovement(data){
+  return DB.push('pharma_mouvements',{
+    type:data.type,
+    med_id:data.med_id,
+    medicament:data.medicament,
+    quantite:+data.quantite||0,
+    stock_avant:+data.stock_avant||0,
+    stock_apres:+data.stock_apres||0,
+    lot_id:data.lot_id||'',
+    numero_lot:data.numero_lot||'',
+    date_peremption:data.date_peremption||'',
+    motif:data.motif||'',
+    reference:data.reference||'',
+    date:today()
   });
 }
 function queueSync(table,item){
@@ -2041,6 +2118,7 @@ function savePharmaVente(){
   if(!nom){alert('Saisissez le nom du patient');return;}
   if(origine==='DIRECTE'&&!motifDirect){alert('Motif obligatoire pour une entrée directe pharmacie');return;}
   const stock=DB.getStock();
+  const lots=DB.getLots();
   const requested=[...document.querySelectorAll('.ph-qty')]
     .map(i=>({input:i,q:+i.value||0,stock:stock.find(m=>m.id===i.dataset.id)}))
     .filter(x=>x.q>0);
@@ -2049,23 +2127,53 @@ function savePharmaVente(){
     alert(`Stock insuffisant pour ${insufficient.input.dataset.nom}. Disponible: ${insufficient.stock?.stock||0}.`);
     return;
   }
+  requested.forEach(x=>ensureLotCoverage(x.stock,lots));
+  const insufficientLots=requested.find(x=>{
+    const usable=lots.filter(l=>l.med_id===x.stock.id&&(+l.quantite||0)>0&&(!l.date_peremption||l.date_peremption>=today()))
+      .reduce((sum,l)=>sum+(+l.quantite||0),0);
+    return usable<x.q;
+  });
+  if(insufficientLots){
+    alert(`Aucun lot valide suffisant pour ${insufficientLots.input.dataset.nom}. Vérifiez les péremptions.`);
+    return;
+  }
   let items=[],tot=0;
   document.querySelectorAll('.ph-qty').forEach(i=>{
     const q=+i.value||0;
     if(q>0){
       const px=sf==='CMU'?+i.dataset.pxCmu:sf==='NA'?+i.dataset.pxNa:+i.dataset.pxFpm;
-      items.push({id:i.dataset.id,nom:i.dataset.nom,qte:q,pu:px,montant:q*px});
-      tot+=q*px;
       const idx=stock.findIndex(m=>m.id===i.dataset.id);
-      if(idx>=0) stock[idx].stock=Math.max(0,stock[idx].stock-q);
+      if(idx>=0){
+        const allocations=consumeLots(stock[idx],lots,q);
+        items.push({id:i.dataset.id,nom:i.dataset.nom,qte:q,pu:px,montant:q*px,lots:allocations});
+        tot+=q*px;
+        stock[idx].stock=Math.max(0,stock[idx].stock-q);
+      }
     }
   });
   if(!items.length){alert('Sélectionnez au moins un médicament');return;}
+  DB.setLots(lots);
   DB.setStock(stock);
   const cnam=sf==='FPM'?tot:sf==='CMU'?Math.round(tot*0.7):0;
   const encaisse=sf==='FPM'?0:tot;
   const tm=sf==='CMU'?Math.round(tot*0.3):sf==='NA'?tot:0;
   const v=DB.push('pharma_ventes',{patient_id:pid||'',patient_nom:nom,statut:s,statut_facturation:sf,ordonnance:document.getElementById('ph-ord').value,items,total:tot,cnam,tm,date:today(),origine,motif_entree_directe:origine==='DIRECTE'?motifDirect:''});
+  items.forEach(item=>{
+    const med=stock.find(m=>m.id===item.id);
+    (item.lots||[]).forEach(allocation=>recordStockMovement({
+      type:'SORTIE_DELIVRANCE',
+      med_id:item.id,
+      medicament:item.nom,
+      quantite:-allocation.quantite,
+      stock_avant:(+med.stock||0)+item.qte,
+      stock_apres:+med.stock||0,
+      lot_id:allocation.lot_id,
+      numero_lot:allocation.numero_lot,
+      date_peremption:allocation.date_peremption,
+      motif:`Délivrance à ${nom}`,
+      reference:v.id
+    }));
+  });
   DB.push('transactions',{patient_nom:nom,statut:sf,service:'PHARMACIE',
     designation:'Pharmacie: '+items.map(i=>i.nom).join(', '),montant:tot,cnam,encaisse,date:today()});
   logAudit('PHARMACIE_VENTE',{patient_nom:nom,statut:s,statut_facturation:sf,total:tot,origine,motif_entree_directe:origine==='DIRECTE'?motifDirect:''});
@@ -2103,6 +2211,7 @@ function savePharmaVente(){
 // ── PHARMACIE — Stock ───────────────────────────────────
 VIEW['pha-stock'] = (el) => {
   const stock=DB.getStock();
+  const lots=DB.getLots();
   const alertes=stock.filter(m=>m.stock<=m.seuil);
   const cats=[...new Set(stock.map(m=>m.categorie))];
   const catFilter=localStorage.getItem('pha-cat-filter')||'Tous';
@@ -2123,9 +2232,12 @@ VIEW['pha-stock'] = (el) => {
         <option ${catFilter==='Tous'?'selected':''}>Tous</option>
         ${cats.map(c=>`<option ${catFilter===c?'selected':''}>${c}</option>`).join('')}
       </select>
-      <label style="margin-left:12px">Ajout stock :</label>
-      <input type="text" id="sk-add-nom" placeholder="Médicament" style="flex:1">
+      <label style="margin-left:12px">Entrée de lot :</label>
+      <select id="sk-add-med" style="flex:1">${stock.map(m=>`<option value="${m.id}">${escHtml(m.nom)}</option>`).join('')}</select>
       <input type="number" id="sk-add-qty" placeholder="Qté" style="width:70px" min="1">
+      <input type="text" id="sk-add-lot" placeholder="N° lot" style="width:110px">
+      <input type="date" id="sk-add-exp" title="Date de péremption">
+      <input type="text" id="sk-add-fournisseur" placeholder="Fournisseur" style="width:130px">
       <button class="btn btn-success btn-sm" onclick="addStockEntry()">+ Entrée</button>
     </div>
     <div id="stock-table-wrap" class="tw">
@@ -2150,23 +2262,129 @@ VIEW['pha-stock'] = (el) => {
       }).join('')}
     </table>
     </div>
+  </div>
+  <div class="card">
+    <div class="card-title">Lots et péremptions</div>
+    <div class="tw"><table>
+      <tr><th>Médicament</th><th>N° lot</th><th>Péremption</th><th>État</th><th>Quantité</th><th>Fournisseur</th><th>Entrée par</th></tr>
+      ${lots.slice().sort((a,b)=>(a.date_peremption||'9999').localeCompare(b.date_peremption||'9999')).map(l=>{
+        const state=lotExpiryState(l);
+        return `<tr><td style="font-weight:700">${escHtml(l.medicament||'—')}</td><td>${escHtml(l.numero_lot||'—')}</td>
+          <td>${l.date_peremption?fmtD(l.date_peremption):'—'}</td><td><span class="badge ${state.cls}">${state.label}</span></td>
+          <td style="font-weight:700">${fmt(+l.quantite||0)}</td><td>${escHtml(l.fournisseur||'—')}</td><td style="font-size:10px">${escHtml(l.agent_nom||'—')}</td></tr>`;
+      }).join('')||'<tr><td colspan="7" style="text-align:center;color:#aaa">Aucun lot enregistré</td></tr>'}
+    </table></div>
   </div>`;
 };
 function addStockEntry(){
-  const nom=document.getElementById('sk-add-nom').value.trim();
+  const medId=document.getElementById('sk-add-med').value;
   const qty=+document.getElementById('sk-add-qty').value||0;
-  if(!nom||qty<=0){alert('Saisissez un médicament et une quantité');return;}
+  const numeroLot=document.getElementById('sk-add-lot').value.trim();
+  const datePeremption=document.getElementById('sk-add-exp').value;
+  const fournisseur=document.getElementById('sk-add-fournisseur').value.trim();
+  if(!medId||qty<=0||!numeroLot||!datePeremption){alert('Médicament, quantité, numéro de lot et péremption sont obligatoires.');return;}
+  if(datePeremption<today()){alert('Impossible d’enregistrer un lot déjà périmé.');return;}
   const stock=DB.getStock();
-  const idx=stock.findIndex(m=>m.nom.toLowerCase().includes(nom.toLowerCase()));
+  const idx=stock.findIndex(m=>m.id===medId);
   if(idx>=0){
     const before=stock[idx].stock;
     stock[idx].stock+=qty;
+    const lots=DB.getLots();
+    const lotId='LOT-'+medId+'-'+numeroLot.toUpperCase().replace(/[^A-Z0-9]/g,'');
+    const existing=lots.find(l=>l.id===lotId);
+    if(existing){
+      existing.quantite=(+existing.quantite||0)+qty;
+      existing.quantite_initiale=(+existing.quantite_initiale||0)+qty;
+      existing.date_peremption=datePeremption;
+      existing.fournisseur=fournisseur||existing.fournisseur||'';
+    }else{
+      lots.unshift({id:lotId,med_id:medId,medicament:stock[idx].nom,numero_lot:numeroLot,date_peremption:datePeremption,
+        fournisseur,quantite:qty,quantite_initiale:qty,created_at:new Date().toISOString()});
+    }
+    DB.setLots(lots);
     DB.setStock(stock);
-    logAudit('STOCK_ENTRY',{medicament:stock[idx].nom,med_id:stock[idx].id,before,added:qty,after:stock[idx].stock});
+    recordStockMovement({type:'ENTREE_LOT',med_id:stock[idx].id,medicament:stock[idx].nom,quantite:qty,
+      stock_avant:before,stock_apres:stock[idx].stock,lot_id:lotId,numero_lot:numeroLot,date_peremption:datePeremption,
+      motif:fournisseur?`Réception fournisseur : ${fournisseur}`:'Réception de stock',reference:lotId});
+    logAudit('STOCK_ENTRY',{medicament:stock[idx].nom,med_id:stock[idx].id,before,added:qty,after:stock[idx].stock,numero_lot:numeroLot,date_peremption:datePeremption});
     alert(`${stock[idx].nom} : +${qty} → ${stock[idx].stock} en stock`);
   }
-  else alert('Médicament non trouvé. Contactez le Médecin-Chef pour ajouter une nouvelle référence.');
+  else alert('Médicament non trouvé.');
   showView('pha-stock');
+}
+
+// ── PHARMACIE — Mouvements de stock ────────────────────
+VIEW['pha-mouvements'] = (el) => {
+  const dateFilter=localStorage.getItem('pha-mvt-date')||today();
+  const rows=DB.get('pharma_mouvements').filter(m=>!dateFilter||(m.created_at||m.date||'').startsWith(dateFilter));
+  el.innerHTML=`
+  <div class="card">
+    <div class="card-title">Journal inaltérable des mouvements</div>
+    <div class="fr no-print"><label>Date</label><input type="date" value="${escHtml(dateFilter)}"
+      onchange="localStorage.setItem('pha-mvt-date',this.value);showView('pha-mouvements')">
+      <button class="btn btn-out btn-sm" onclick="localStorage.removeItem('pha-mvt-date');showView('pha-mouvements')">Tout afficher</button></div>
+    <div class="tw"><table>
+      <tr><th>Date/heure</th><th>Type</th><th>Médicament</th><th>Lot</th><th>Péremption</th><th>Mouvement</th><th>Avant</th><th>Après</th><th>Motif/référence</th><th>Agent</th></tr>
+      ${rows.map(m=>`<tr><td style="white-space:nowrap">${fmtD(m.created_at)} ${fmtT(m.created_at)}</td>
+        <td><span class="badge ${(+m.quantite||0)>=0?'b-ok':'b-warn'}">${escHtml(m.type||'—')}</span></td>
+        <td style="font-weight:700">${escHtml(m.medicament||'—')}</td><td>${escHtml(m.numero_lot||'—')}</td>
+        <td>${m.date_peremption?fmtD(m.date_peremption):'—'}</td>
+        <td style="font-weight:700;color:${(+m.quantite||0)>=0?'var(--vert)':'var(--rouge)'}">${(+m.quantite||0)>0?'+':''}${fmt(+m.quantite||0)}</td>
+        <td>${fmt(+m.stock_avant||0)}</td><td>${fmt(+m.stock_apres||0)}</td>
+        <td style="font-size:10px">${escHtml(m.motif||'—')}<div style="color:var(--muted)">${escHtml(m.reference||'')}</div></td>
+        <td style="font-size:10px">${escHtml(m.agent_nom||'—')}</td></tr>`).join('')||'<tr><td colspan="10" style="text-align:center;color:#aaa">Aucun mouvement</td></tr>'}
+    </table></div>
+  </div>`;
+};
+
+// ── PHARMACIE — Inventaire physique ────────────────────
+VIEW['pha-inventaire'] = (el) => {
+  const stock=DB.getStock();
+  const inventaires=DB.get('pharma_inventaires');
+  el.innerHTML=`
+  <div class="al al-info"><strong>Principe de contrôle</strong>Le stock théorique n’est pas modifié lors de la saisie. Tout inventaire est transmis au Médecin-Chef, qui approuve ou rejette les écarts.</div>
+  <div class="card">
+    <div class="card-title">Nouvel inventaire physique</div>
+    <div class="fr"><label>Référence</label><input id="inv-reference" value="INV-${today()}" style="max-width:180px">
+      <label>Observation générale</label><input id="inv-observation" placeholder="Contexte, équipe, emplacement..." style="flex:1"></div>
+    <div class="tw"><table>
+      <tr><th>Médicament</th><th>Théorique</th><th>Compté</th><th>Justification si écart</th></tr>
+      ${stock.map(m=>`<tr><td style="font-weight:700">${escHtml(m.nom)}</td><td>${fmt(+m.stock||0)} ${escHtml(m.unite||'')}</td>
+        <td><input type="number" class="inv-physique" data-id="${m.id}" data-theorique="${+m.stock||0}" min="0" value="${+m.stock||0}" style="width:85px"></td>
+        <td><input type="text" class="inv-motif" data-id="${m.id}" placeholder="Perte, casse, erreur de saisie..." style="width:100%"></td></tr>`).join('')}
+    </table></div>
+    <div class="btn-row"><button class="btn btn-primary" onclick="submitPharmaInventory()">Transmettre au Médecin-Chef</button></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Inventaires transmis</div>
+    <div class="tw"><table>
+      <tr><th>Date</th><th>Référence</th><th>Écarts</th><th>Statut</th><th>Décision chef</th><th>Agent</th></tr>
+      ${inventaires.map(inv=>{
+        const ecarts=(inv.lignes||[]).filter(l=>(+l.ecart||0)!==0);
+        return `<tr><td>${fmtD(inv.created_at)}</td><td style="font-weight:700">${escHtml(inv.reference||'—')}</td>
+          <td>${ecarts.length}${ecarts.length?`<div style="font-size:9px">${ecarts.slice(0,4).map(l=>`${escHtml(l.medicament)}: ${l.ecart>0?'+':''}${fmt(l.ecart)}`).join(' | ')}</div>`:''}</td>
+          <td><span class="badge ${inv.statut==='APPROUVE'?'b-ok':inv.statut==='REJETE'?'b-err':'b-warn'}">${escHtml(inv.statut||'EN_ATTENTE_CHEF')}</span></td>
+          <td style="font-size:10px">${escHtml(inv.decision_motif||'—')}</td><td style="font-size:10px">${escHtml(inv.agent_nom||'—')}</td></tr>`;
+      }).join('')||'<tr><td colspan="6" style="text-align:center;color:#aaa">Aucun inventaire</td></tr>'}
+    </table></div>
+  </div>`;
+};
+function submitPharmaInventory(){
+  const stock=DB.getStock();
+  const lignes=stock.map(m=>{
+    const input=document.querySelector(`.inv-physique[data-id="${m.id}"]`);
+    const motif=document.querySelector(`.inv-motif[data-id="${m.id}"]`)?.value.trim()||'';
+    const physique=+input?.value||0;
+    return {med_id:m.id,medicament:m.nom,unite:m.unite||'',theorique:+m.stock||0,physique,ecart:physique-(+m.stock||0),motif};
+  });
+  const unjustified=lignes.find(l=>l.ecart!==0&&!l.motif);
+  if(unjustified){alert(`Justification obligatoire pour l’écart de ${unjustified.medicament}.`);return;}
+  const reference=document.getElementById('inv-reference').value.trim()||('INV-'+today());
+  DB.push('pharma_inventaires',{reference,observation:document.getElementById('inv-observation').value.trim(),
+    lignes,statut:'EN_ATTENTE_CHEF',date:today()});
+  logAudit('PHARMACIE_INVENTAIRE_SOUMIS',{reference,ecarts:lignes.filter(l=>l.ecart!==0).length});
+  alert('Inventaire transmis au Médecin-Chef. Aucun stock n’a encore été modifié.');
+  showView('pha-inventaire');
 }
 
 // ── PHARMACIE — Tableau de bord ─────────────────────────
@@ -2452,6 +2670,9 @@ VIEW['chef-pharmacie'] = (el) => {
       ...(Array.isArray(v.items)?v.items.map(i=>i.nom):[])
     ].some(x=>String(x||'').toLowerCase().includes(search)));
   const stock=DB.getStock();
+  const lots=DB.getLots();
+  const mouvements=DB.get('pharma_mouvements');
+  const inventaires=DB.get('pharma_inventaires');
   const total=ventes.reduce((s,v)=>s+(+v.total||0),0);
   const cnam=ventes.reduce((s,v)=>s+(+v.cnam||0),0);
   const tm=ventes.reduce((s,v)=>s+(+v.tm||0),0);
@@ -2507,8 +2728,114 @@ VIEW['chef-pharmacie'] = (el) => {
           <td>${fmt(+m.px_cession||0)} F</td><td>${fmt(pxCMU(m))} F</td><td>${fmt(pxNA(m))} F</td></tr>`;
       }).join('')}
     </table></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Lots à surveiller</div>
+    <div class="tw"><table>
+      <tr><th>Médicament</th><th>Lot</th><th>Péremption</th><th>État</th><th>Quantité</th><th>Fournisseur</th></tr>
+      ${lots.filter(l=>(+l.quantite||0)>0).sort((a,b)=>(a.date_peremption||'9999').localeCompare(b.date_peremption||'9999')).map(l=>{
+        const state=lotExpiryState(l);
+        return `<tr><td style="font-weight:700">${escHtml(l.medicament||'—')}</td><td>${escHtml(l.numero_lot||'—')}</td>
+          <td>${l.date_peremption?fmtD(l.date_peremption):'—'}</td><td><span class="badge ${state.cls}">${state.label}</span></td>
+          <td>${fmt(+l.quantite||0)}</td><td>${escHtml(l.fournisseur||'—')}</td></tr>`;
+      }).join('')||'<tr><td colspan="6" style="text-align:center;color:#aaa">Aucun lot</td></tr>'}
+    </table></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Inventaires en attente de décision</div>
+    ${inventaires.filter(i=>i.statut==='EN_ATTENTE_CHEF').map(inv=>{
+      const ecarts=(inv.lignes||[]).filter(l=>(+l.ecart||0)!==0);
+      return `<div class="fs"><div class="fs-title">${escHtml(inv.reference||'Inventaire')} — ${fmtD(inv.created_at)} — ${escHtml(inv.agent_nom||'—')}</div>
+        <div style="font-size:11px;margin-bottom:8px">${ecarts.map(l=>`<strong>${escHtml(l.medicament)}</strong> : ${l.ecart>0?'+':''}${fmt(l.ecart)} (${escHtml(l.motif||'sans motif')})`).join(' | ')||'Aucun écart'}</div>
+        <div class="btn-row no-print"><button class="btn btn-success btn-sm" onclick="decidePharmaInventory('${inv.id}',true)">Approuver et ajuster</button>
+          <button class="btn btn-danger btn-sm" onclick="decidePharmaInventory('${inv.id}',false)">Rejeter</button></div></div>`;
+    }).join('')||'<div class="al al-ok"><strong>Aucun inventaire en attente</strong>Toutes les demandes ont reçu une décision.</div>'}
+  </div>
+  <div class="card">
+    <div class="card-title">Derniers mouvements de stock</div>
+    <div class="tw"><table>
+      <tr><th>Date</th><th>Type</th><th>Médicament</th><th>Lot</th><th>Quantité</th><th>Avant</th><th>Après</th><th>Motif</th><th>Agent</th></tr>
+      ${mouvements.slice(0,100).map(m=>`<tr><td>${fmtD(m.created_at)} ${fmtT(m.created_at)}</td><td>${escHtml(m.type||'—')}</td>
+        <td style="font-weight:700">${escHtml(m.medicament||'—')}</td><td>${escHtml(m.numero_lot||'—')}</td>
+        <td style="color:${(+m.quantite||0)>=0?'var(--vert)':'var(--rouge)'};font-weight:700">${(+m.quantite||0)>0?'+':''}${fmt(+m.quantite||0)}</td>
+        <td>${fmt(+m.stock_avant||0)}</td><td>${fmt(+m.stock_apres||0)}</td><td>${escHtml(m.motif||'—')}</td><td>${escHtml(m.agent_nom||'—')}</td></tr>`).join('')||'<tr><td colspan="9" style="text-align:center;color:#aaa">Aucun mouvement</td></tr>'}
+    </table></div>
   </div>`;
 };
+
+function decidePharmaInventory(id,approve){
+  const inventaires=DB.get('pharma_inventaires');
+  const inv=inventaires.find(i=>i.id===id);
+  if(!inv||inv.statut!=='EN_ATTENTE_CHEF') return;
+  const decision=prompt(approve?'Motif ou commentaire d’approbation :':'Motif obligatoire du rejet :','');
+  if(decision===null||(!approve&&!decision.trim())) return;
+  if(!approve){
+    inv.statut='REJETE';
+    inv.decision_motif=decision.trim();
+    inv.decide_par=CURRENT_AGENT.nom;
+    inv.decide_at=new Date().toISOString();
+    persistUpdatedRecord('pharma_inventaires',inventaires,inv);
+    logAudit('PHARMACIE_INVENTAIRE_REJETE',{reference:inv.reference,motif:inv.decision_motif});
+    showView('chef-pharmacie');
+    return;
+  }
+  const stock=DB.getStock();
+  const stale=(inv.lignes||[]).find(line=>{
+    const med=stock.find(m=>m.id===line.med_id);
+    return med&&(+med.stock||0)!==(+line.theorique||0);
+  });
+  if(stale){alert(`Le stock de ${stale.medicament} a changé depuis l’inventaire. Rejetez cette demande et faites saisir un nouvel inventaire.`);return;}
+  const lots=DB.getLots();
+  const impossible=(inv.lignes||[]).find(line=>{
+    if((+line.ecart||0)>=0) return false;
+    const med=stock.find(m=>m.id===line.med_id);
+    if(!med) return true;
+    ensureLotCoverage(med,lots);
+    return lots.filter(l=>l.med_id===med.id).reduce((sum,l)=>sum+(+l.quantite||0),0)<Math.abs(+line.ecart||0);
+  });
+  if(impossible){alert(`Lots insuffisants pour ajuster ${impossible.medicament}.`);return;}
+  for(const line of (inv.lignes||[])){
+    const med=stock.find(m=>m.id===line.med_id);
+    if(!med||(+line.ecart||0)===0) continue;
+    const before=+med.stock||0;
+    const delta=+line.ecart||0;
+    if(delta>0){
+      const lotId=`LOT-INV-${inv.id}-${med.id}`;
+      lots.unshift({id:lotId,med_id:med.id,medicament:med.nom,numero_lot:`INV-${inv.reference}`,
+        date_peremption:'',fournisseur:'Ajustement inventaire',quantite:delta,quantite_initiale:delta,created_at:new Date().toISOString()});
+      med.stock=before+delta;
+      recordStockMovement({type:'AJUSTEMENT_INVENTAIRE',med_id:med.id,medicament:med.nom,quantite:delta,
+        stock_avant:before,stock_apres:med.stock,lot_id:lotId,numero_lot:`INV-${inv.reference}`,
+        motif:line.motif,reference:inv.reference});
+    }else{
+      ensureLotCoverage(med,lots);
+      let remaining=Math.abs(delta);
+      const allocations=[];
+      lots.filter(l=>l.med_id===med.id&&(+l.quantite||0)>0)
+        .sort((a,b)=>(a.date_peremption||'9999').localeCompare(b.date_peremption||'9999'))
+        .forEach(l=>{
+          if(remaining<=0) return;
+          const used=Math.min(remaining,+l.quantite||0);
+          l.quantite=(+l.quantite||0)-used;
+          remaining-=used;
+          allocations.push({lot:l,used});
+        });
+      med.stock=before+delta;
+      allocations.forEach(a=>recordStockMovement({type:'AJUSTEMENT_INVENTAIRE',med_id:med.id,medicament:med.nom,quantite:-a.used,
+        stock_avant:before,stock_apres:med.stock,lot_id:a.lot.id,numero_lot:a.lot.numero_lot,date_peremption:a.lot.date_peremption,
+        motif:line.motif,reference:inv.reference}));
+    }
+  }
+  DB.setLots(lots);
+  DB.setStock(stock);
+  inv.statut='APPROUVE';
+  inv.decision_motif=decision.trim();
+  inv.decide_par=CURRENT_AGENT.nom;
+  inv.decide_at=new Date().toISOString();
+  persistUpdatedRecord('pharma_inventaires',inventaires,inv);
+  logAudit('PHARMACIE_INVENTAIRE_APPROUVE',{reference:inv.reference,ecarts:(inv.lignes||[]).filter(l=>l.ecart!==0).length});
+  showView('chef-pharmacie');
+}
 
 // CHEF — Alertes
 VIEW['chef-alertes'] = (el) => {
@@ -2974,6 +3301,13 @@ function toCloudRow(op){
   };
 }
 async function pushCloudRow(row){
+  if(row.table_name==='pharma_mouvements'){
+    const immutableInsert=await supa.from(CLOUD_TABLE).insert(row);
+    if(!immutableInsert.error||String(immutableInsert.error.code||'')==='23505'){
+      return {ok:true,fallback:immutableInsert.error?'duplicate_ignored':'immutable_insert'};
+    }
+    return {ok:false,error:immutableInsert.error};
+  }
   const upsertRes = await supa.from(CLOUD_TABLE).upsert(row,{onConflict:'event_key'});
   if(!upsertRes.error) return {ok:true};
 
@@ -3021,6 +3355,7 @@ async function syncQueue(){
   }finally{
     IS_SYNCING=false;
     updateSyncStatus();
+    if(IS_ONLINE&&SYNC_Q.length&&!LAST_SYNC_ERROR) setTimeout(syncQueue,0);
   }
 }
 async function pullFromCloud(){

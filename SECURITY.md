@@ -54,6 +54,27 @@ La migration:
 Le rapport de controle se trouve dans
 `supabase/checks/historical_constantes_report.sql`.
 
+## Controle des stocks pharmacie
+
+Immediatement apres le deploiement de l'interface et avant toute nouvelle
+operation pharmacie, executer
+`supabase/migrations/202606120005_pharmacy_stock_controls.sql`. Cette migration:
+
+- autorise les profils pharmacie et chef a synchroniser les lots, mouvements
+  et inventaires;
+- conserve les mouvements comme des evenements non modifiables;
+- permet uniquement la mise a jour des lots et des inventaires;
+- convertit le stock existant en lots historiques sans date de peremption.
+
+Toute nouvelle entree exige un numero de lot et une date de peremption. Une
+delivrance consomme d'abord le lot valide qui expire le plus tot. Un lot perime
+ne peut pas etre delivre.
+
+L'inventaire physique ne modifie jamais directement le stock. Les ecarts sont
+justifies par le gestionnaire pharmacie, puis approuves ou rejetes par le
+Medecin-Chef. Le rapport de controle se trouve dans
+`supabase/checks/pharmacy_stock_controls_report.sql`.
+
 ## Verification
 
 La requete anonyme suivante doit retourner `401` ou un tableau vide:
