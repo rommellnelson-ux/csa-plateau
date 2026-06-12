@@ -1,4 +1,4 @@
-const CACHE = 'csa-plateau-v2-secure';
+const CACHE = 'csa-plateau-v3-mfa';
 const ASSETS = [
   './',
   './index.html',
