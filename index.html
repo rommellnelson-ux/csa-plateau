@@ -454,6 +454,15 @@ const MODULE_TABS = {
   compta: ['cpt-caisse','cpt-cloture','cpt-rapports'],
   chef:   ['chef-dashboard','acc-consultation','chef-patients','chef-dossier','chef-alertes','chef-mensuel','chef-prix','chef-audit','chef-exports'],
 };
+const PERMISSION_TABS = {
+  accueil:MODULE_TABS.accueil,
+  as:['acc-reception','acc-constantes','acc-liste'],
+  soins:MODULE_TABS.soins,
+  labo:MODULE_TABS.labo,
+  pharmacie:MODULE_TABS.pharmacie,
+  compta:MODULE_TABS.compta,
+  chef:MODULE_TABS.chef,
+};
 const TAB_LABELS = {
   'acc-reception':'Accueil patient','acc-constantes':'Constantes','acc-consultation':'Consultation','acc-liste':'File du jour',
   'soins-actes':'Réaliser soins','soins-obs':'Observation','soins-liste':'Soins du jour',
@@ -480,7 +489,7 @@ async function authLogin(event){
 async function loadAuthenticatedProfile(session){
   if(!session?.user) return false;
   const {data,error}=await supa.from('csa_profiles')
-    .select('agent_code,display_name,job_title,module,building,is_chef,active')
+    .select('agent_code,display_name,job_title,module,permissions,building,is_chef,active')
     .eq('user_id',session.user.id).single();
   if(error||!data?.active||!MODULE_TABS[data.module]){
     await supa.auth.signOut();
@@ -492,6 +501,7 @@ async function loadAuthenticatedProfile(session){
     nom:data.display_name,
     role:data.job_title,
     module:data.module,
+    permissions:Array.isArray(data.permissions)&&data.permissions.length?data.permissions:[data.module],
     bldg:data.building||'',
     isChef:!!data.is_chef,
     userId:session.user.id
@@ -507,8 +517,9 @@ function startApp(){
   document.getElementById('mod-title').textContent=CURRENT_AGENT.role;
   document.getElementById('agent-chip').textContent=CURRENT_AGENT.nom;
   ensurePatientDossiers();
-  buildNav(MODULE_TABS[CURRENT_AGENT.module]);
-  showView(MODULE_TABS[CURRENT_AGENT.module][0]);
+  const tabs=getAllowedTabs();
+  buildNav(tabs);
+  showView(tabs[0]);
   updateSyncStatus();
 }
 async function logout(){
@@ -527,9 +538,14 @@ function buildNav(tabs){
   document.getElementById('mod-nav').innerHTML=tabs.map(t=>`
     <button class="mod-tab" data-tab="${t}" onclick="showView('${t}')">${TAB_LABELS[t]||t}${t==='chef-audit'&&rejetsToday>0?` <span class="badge b-err" style="margin-left:6px" title="Rejets clôture du jour">${rejetsToday}</span>`:''}${t==='cpt-cloture'&&excedentsToday>0?` <span class="badge b-warn" style="margin-left:6px" title="Clôtures avec excédent du jour">+${excedentsToday}</span>`:''}</button>`).join('');
 }
+function getAllowedTabs(){
+  if(!CURRENT_AGENT) return [];
+  const permissions=CURRENT_AGENT.isChef?['chef']:(CURRENT_AGENT.permissions||[CURRENT_AGENT.module]);
+  return [...new Set(permissions.flatMap(permission=>PERMISSION_TABS[permission]||[]))];
+}
 function showView(id){
   if(!CURRENT_AGENT) return;
-  const allowed=MODULE_TABS[CURRENT_AGENT.module]||[];
+  const allowed=getAllowedTabs();
   if(!allowed.includes(id)){
     logAudit('ACCESS_DENIED',{view:id});
     id=allowed[0];

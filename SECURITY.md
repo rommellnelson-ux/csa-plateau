@@ -13,13 +13,23 @@ ajoute au code source.
 
 ```sql
 insert into public.csa_profiles
-  (user_id, agent_code, display_name, job_title, module, building, is_chef)
+  (user_id, agent_code, display_name, job_title, module, permissions, building, is_chef)
 values
   ('UUID_AUTH', 'MED', 'Medecin-Chef', 'Medecin-Chef / Commandant',
-   'chef', null, true);
+   'chef', array['chef'], null, true);
 ```
 
 Modules autorises: `accueil`, `soins`, `labo`, `pharmacie`, `compta`, `chef`.
+
+Permissions cumulables: `accueil`, `as`, `soins`, `labo`, `pharmacie`,
+`compta`, `chef`. Exemple infirmier gestionnaire de pharmacie:
+
+```sql
+permissions = array['soins','pharmacie']
+```
+
+La permission `as` donne acces a l'accueil patient, aux constantes et a la file
+du jour, sans ouvrir les consultations ni les fonctions financieres.
 
 ## Verification
 
