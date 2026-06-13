@@ -897,7 +897,7 @@ function getOrientedPatients(serviceCode){
 }
 
 let chartInst={};
-function mkChart(id,type,labels,datasets){
+function mkChart(id,type,labels,datasets,extraOptions={}){
   const ctx=document.getElementById(id);
   if(!ctx)return;
   if(typeof Chart==='undefined'){
@@ -912,7 +912,8 @@ function mkChart(id,type,labels,datasets){
     type,data:{labels,datasets},
     options:{responsive:true,maintainAspectRatio:true,
       plugins:{legend:{position:'bottom',labels:{font:{size:10},boxWidth:10}}},
-      scales:type!=='doughnut'&&type!=='pie'?{y:{ticks:{callback:v=>fmt(v/1000)+'k',font:{size:9}},grid:{color:'#f0f0f0'}},x:{ticks:{font:{size:9}}}}:undefined}
+      scales:type!=='doughnut'&&type!=='pie'?{y:{ticks:{callback:v=>fmt(v/1000)+'k',font:{size:9}},grid:{color:'#f0f0f0'}},x:{ticks:{font:{size:9}}}}:undefined,
+      ...extraOptions}
   });
 }
 
@@ -2396,12 +2397,24 @@ function updatePharmaHistoryFilter(prefix,key,value,view){
   showView(view);
 }
 function resetPharmaHistoryFilters(prefix,view){
-  ['from','to','search','financing'].forEach(key=>localStorage.removeItem(`${prefix}-${key}`));
+  ['from','to','search','financing','detail-open','detail-kind','detail-value'].forEach(key=>localStorage.removeItem(`${prefix}-${key}`));
+  showView(view);
+}
+function showPharmaHistoryDetail(prefix,kind,value,view){
+  localStorage.setItem(`${prefix}-detail-open`,'1');
+  localStorage.setItem(`${prefix}-detail-kind`,kind||'all');
+  localStorage.setItem(`${prefix}-detail-value`,value||'');
+  showView(view);
+}
+function hidePharmaHistoryDetail(prefix,view){
+  ['detail-open','detail-kind','detail-value'].forEach(key=>localStorage.removeItem(`${prefix}-${key}`));
   showView(view);
 }
 function renderPharmaHistory(prefix,view){
   const rows=pharmaHistoryData();
   const components=DB.get('pharma_composants_historiques');
+  const catalogue=DB.get('pharma_catalogue_historique');
+  const catalogueById=Object.fromEntries(catalogue.map(product=>[product.id,product]));
   const from=localStorage.getItem(`${prefix}-from`)||'';
   const to=localStorage.getItem(`${prefix}-to`)||'';
   const search=(localStorage.getItem(`${prefix}-search`)||'').trim().toLowerCase();
@@ -2422,14 +2435,87 @@ function renderPharmaHistory(prefix,view){
   const kitRows=filtered.filter(row=>row.record_type==='KIT_FINANCIER');
   const financingValues=[...new Set(rows.map(row=>row.financing).filter(Boolean))].sort();
   const byProduct={};
-  filtered.filter(row=>row.record_type!=='KIT_FINANCIER').forEach(row=>{
+  const productRows=filtered.filter(row=>{
+    const product=catalogueById[row.product_id];
+    return row.record_type!=='KIT_FINANCIER'&&(!product||product.product_type==='Médicament');
+  });
+  productRows.forEach(row=>{
     const key=row.product_id||row.canonical_name||row.normalized_source_label||'Non rapproché';
-    if(!byProduct[key]) byProduct[key]={name:row.canonical_name||row.normalized_source_label||key,quantity:0,amount:0,lines:0};
+    if(!byProduct[key]) byProduct[key]={key,name:row.canonical_name||row.normalized_source_label||key,quantity:0,amount:0,lines:0};
     byProduct[key].quantity+=+row.quantity||0;
     byProduct[key].amount+=+row.amount||0;
     byProduct[key].lines++;
   });
-  const topProducts=Object.values(byProduct).sort((a,b)=>b.amount-a.amount).slice(0,15);
+  const topProducts=Object.values(byProduct).sort((a,b)=>b.quantity-a.quantity||b.amount-a.amount).slice(0,10);
+  const monthKeys=[...new Set(filtered.map(row=>String(row.date||'').slice(0,7)).filter(month=>month.length===7))].sort();
+  const monthLabels=monthKeys.map(month=>{
+    const [year,number]=month.split('-');
+    return new Date(+year,+number-1,1).toLocaleDateString('fr-FR',{month:'short',year:'2-digit'});
+  });
+  const byMonth=Object.fromEntries(monthKeys.map(month=>[month,{amount:0,quantity:0,lines:0}]));
+  filtered.forEach(row=>{
+    const month=String(row.date||'').slice(0,7);
+    if(!byMonth[month]) return;
+    byMonth[month].amount+=+row.amount||0;
+    byMonth[month].quantity+=+row.quantity||0;
+    byMonth[month].lines++;
+  });
+  const byClass={};
+  productRows.forEach(row=>{
+    const therapeuticClass=catalogueById[row.product_id]?.therapeutic_class||'Classe non renseignée';
+    if(!byClass[therapeuticClass]) byClass[therapeuticClass]={name:therapeuticClass,quantity:0,amount:0,months:{}};
+    const item=byClass[therapeuticClass];
+    const month=String(row.date||'').slice(0,7);
+    item.quantity+=+row.quantity||0;
+    item.amount+=+row.amount||0;
+    item.months[month]=(item.months[month]||0)+(+row.quantity||0);
+  });
+  const topClasses=Object.values(byClass).sort((a,b)=>b.quantity-a.quantity).slice(0,6);
+  const detailOpen=localStorage.getItem(`${prefix}-detail-open`)==='1';
+  const detailKind=localStorage.getItem(`${prefix}-detail-kind`)||'all';
+  const detailValue=localStorage.getItem(`${prefix}-detail-value`)||'';
+  const detailRows=filtered.filter(row=>{
+    if(detailKind==='product') return (row.product_id||row.canonical_name||row.normalized_source_label||'Non rapproché')===detailValue;
+    if(detailKind==='class') return (catalogueById[row.product_id]?.therapeutic_class||'Classe non renseignée')===detailValue;
+    if(detailKind==='month') return String(row.date||'').slice(0,7)===detailValue;
+    return true;
+  });
+  const detailTitle=detailKind==='product'?`Produit : ${byProduct[detailValue]?.name||detailValue}`
+    :detailKind==='class'?`Classe thérapeutique : ${detailValue}`
+    :detailKind==='month'?`Mois : ${monthLabels[monthKeys.indexOf(detailValue)]||detailValue}`
+    :'Toutes les lignes filtrées';
+  setTimeout(()=>{
+    if(topProducts.length) mkChart(`${prefix}-products`,'bar',topProducts.map(row=>row.name),[
+      {label:'Quantité sortie',data:topProducts.map(row=>row.quantity),backgroundColor:'rgba(13,43,69,.82)',borderRadius:4}
+    ],{
+      indexAxis:'y',
+      onClick:(_,elements)=>{
+        if(elements.length) showPharmaHistoryDetail(prefix,'product',topProducts[elements[0].index].key,view);
+      },
+      plugins:{legend:{display:false},tooltip:{callbacks:{afterLabel:context=>`${fmt(topProducts[context.dataIndex].amount)} F documentés`}}},
+      scales:{x:{beginAtZero:true,ticks:{font:{size:9}},grid:{color:'#f0f0f0'}},y:{ticks:{font:{size:9}}}}
+    });
+    if(monthKeys.length&&topClasses.length) mkChart(`${prefix}-classes`,'line',monthLabels,
+      topClasses.map((item,index)=>({
+        label:item.name,data:monthKeys.map(month=>item.months[month]||0),
+        borderColor:['#0D2B45','#1A6B3C','#B8860B','#7F3F00','#285F8F','#7A2E55'][index],
+        backgroundColor:'transparent',tension:.35,pointRadius:3,borderWidth:2
+      })),{
+        onClick:(_,elements)=>{
+          if(elements.length) showPharmaHistoryDetail(prefix,'class',topClasses[elements[0].datasetIndex].name,view);
+        },
+        scales:{y:{beginAtZero:true,ticks:{font:{size:9}},grid:{color:'#f0f0f0'}},x:{ticks:{font:{size:9}}}}
+      });
+    if(monthKeys.length) mkChart(`${prefix}-finance`,'line',monthLabels,[
+      {label:'Montant documenté',data:monthKeys.map(month=>byMonth[month].amount),borderColor:'#B8860B',backgroundColor:'rgba(184,134,11,.12)',fill:true,tension:.35,pointRadius:4,borderWidth:2}
+    ],{
+      onClick:(_,elements)=>{
+        if(elements.length) showPharmaHistoryDetail(prefix,'month',monthKeys[elements[0].index],view);
+      },
+      plugins:{legend:{position:'bottom',labels:{font:{size:10},boxWidth:10}},tooltip:{callbacks:{label:context=>`${fmt(context.raw)} F`}}},
+      scales:{y:{beginAtZero:true,ticks:{callback:value=>fmt(value/1000)+'k F',font:{size:9}},grid:{color:'#f0f0f0'}},x:{ticks:{font:{size:9}}}}
+    });
+  },100);
   return `
   <div class="al al-info"><strong>Historique documentaire, février à juin 2026</strong>Ces données servent à l'analyse des sorties passées. Elles ne modifient ni le stock courant, ni les lots, ni les ventes, ni les dossiers patients.</div>
   <div class="g4" style="margin-bottom:12px">
@@ -2452,26 +2538,22 @@ function renderPharmaHistory(prefix,view){
       <button class="btn btn-out btn-sm" onclick="resetPharmaHistoryFilters('${prefix}','${view}')">Réinitialiser</button></div>
   </div>
   <div class="g2">
-    <div class="card">
-      <div class="card-title">Produits les plus importants — filtre actif</div>
-      <div class="tw"><table><tr><th>Produit</th><th>Lignes</th><th>Quantité</th><th>Montant</th></tr>
-        ${topProducts.map(row=>`<tr><td style="font-weight:700">${escHtml(row.name)}</td><td>${row.lines}</td><td>${fmt(row.quantity)}</td><td>${fmt(row.amount)} F</td></tr>`).join('')||'<tr><td colspan="4" style="text-align:center;color:#aaa">Aucune donnée</td></tr>'}
-      </table></div>
-    </div>
-    <div class="card">
-      <div class="card-title">Contrôles d'intégrité</div>
-      <div class="recu-line"><span>Total complet attendu</span><strong>1 492 710,748 F</strong></div>
-      <div class="recu-line"><span>Lignes complètes attendues</span><strong>712</strong></div>
-      <div class="recu-line"><span>Composants de kits</span><strong>${components.length} / 152</strong></div>
-      <div class="recu-line"><span>Impact sur stock courant</span><strong style="color:var(--vert)">0</strong></div>
-      <div class="recu-line"><span>HPV</span><strong>Hydrosol Poly Vitamine</strong></div>
+    <div class="card"><div class="card-title">Top 10 produits par quantité sortie</div><canvas id="${prefix}-products" style="max-height:310px"></canvas><div style="font-size:9px;color:var(--muted);margin-top:6px">Cliquez sur une barre pour afficher les lignes du produit.</div></div>
+    <div class="card"><div class="card-title">Évolution des principales classes thérapeutiques</div><canvas id="${prefix}-classes" style="max-height:310px"></canvas><div style="font-size:9px;color:var(--muted);margin-top:6px">Cliquez sur une courbe ou un point pour afficher la classe.</div></div>
+  </div>
+  <div class="card"><div class="card-title">Évolution financière pharmacie</div><canvas id="${prefix}-finance" style="max-height:260px"></canvas><div style="font-size:9px;color:var(--muted);margin-top:6px">Cliquez sur un mois pour afficher son registre détaillé.</div></div>
+  <div class="card no-print">
+    <div class="card-title">Données détaillées sur demande</div>
+    <div class="btn-row">
+      <button class="btn btn-primary btn-sm" onclick="showPharmaHistoryDetail('${prefix}','all','','${view}')">Afficher la liste détaillée (${filtered.length})</button>
+      ${detailOpen?`<button class="btn btn-out btn-sm" onclick="hidePharmaHistoryDetail('${prefix}','${view}')">Masquer le détail</button>`:''}
     </div>
   </div>
-  <div class="card">
-    <div class="card-title">Registre historique détaillé — ${filtered.length} ligne(s)</div>
+  ${detailOpen?`<div class="card">
+    <div class="card-title">${escHtml(detailTitle)} — ${detailRows.length} ligne(s)</div>
     <div class="tw"><table>
       <tr><th>Date</th><th>Page</th><th>Libellé du registre</th><th>Produit rapproché</th><th>Type</th><th>Quantité</th><th>Montant</th><th>Financement</th><th>Observation</th></tr>
-      ${filtered.slice(0,300).map(row=>`<tr>
+      ${detailRows.slice(0,300).map(row=>`<tr>
         <td style="white-space:nowrap">${fmtD(row.date)}</td><td>${row.page||'—'}</td>
         <td>${escHtml(row.original_label||row.normalized_source_label||'—')}</td>
         <td style="font-weight:700">${escHtml(row.canonical_name||'Non rapproché')}<div style="font-size:9px;color:var(--muted)">${escHtml(row.product_id||'')}</div></td>
@@ -2480,8 +2562,8 @@ function renderPharmaHistory(prefix,view){
         <td>${escHtml(row.financing||'—')}</td><td style="font-size:10px">${escHtml(row.source_observation||'—')}</td>
       </tr>`).join('')||'<tr><td colspan="9" style="text-align:center;color:#aaa;padding:16px">Aucune ligne pour ce filtre</td></tr>'}
     </table></div>
-    ${filtered.length>300?`<div class="al al-warn no-print" style="margin-top:10px"><strong>Affichage limité</strong>Les 300 premières lignes sont affichées. Affinez les filtres pour consulter le reste.</div>`:''}
-  </div>`;
+    ${detailRows.length>300?`<div class="al al-warn no-print" style="margin-top:10px"><strong>Affichage limité</strong>Les 300 premières lignes sont affichées. Affinez les filtres pour consulter le reste.</div>`:''}
+  </div>`:''}`;
 }
 
 // ── PHARMACIE — Tableau de bord ─────────────────────────
