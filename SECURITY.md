@@ -202,3 +202,25 @@ Medecin-Chef avec MFA.
 
 Executer ensuite
 `supabase/checks/pharmacy_catalogue_editor_report.sql`.
+
+## Nouveaux produits par inventaire et majoration CMU
+
+Executer
+`supabase/migrations/202606130011_inventory_new_products_cmu_markup.sql`
+apres la migration 010.
+
+Un gestionnaire pharmacie peut proposer un produit absent pendant un
+inventaire. La proposition reste dans l'inventaire et ne devient ni une fiche
+active ni un stock disponible avant approbation du Medecin-Chef avec MFA.
+
+Le tarif CMU est calcule ainsi:
+
+`prix de cession * (1 + majoration CMU / 100)`
+
+La majoration vaut 15% par defaut et reste modifiable uniquement par le
+Medecin-Chef. Les quantites historiques du registre sont des sorties cumulees,
+pas un stock restant; elles ne sont donc jamais converties automatiquement en
+stock operationnel.
+
+Executer ensuite
+`supabase/checks/inventory_new_products_cmu_markup_report.sql`.
