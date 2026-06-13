@@ -484,7 +484,7 @@ const MODULE_TABS = {
   accueil:['acc-reception','acc-constantes','acc-consultation','acc-liste'],
   soins:  ['acc-consultation','soins-actes','soins-obs','soins-liste'],
   labo:   ['labo-saisie','labo-resultats','labo-feuilles'],
-  pharmacie:['pha-vente','pha-stock','pha-mouvements','pha-inventaire','pha-historique','pha-tableau'],
+  pharmacie:['pha-vente','pha-stock','pha-mouvements','pha-inventaire','pha-tableau'],
   compta: ['cpt-caisse','cpt-cloture','cpt-rapports'],
   chef:   ['chef-dashboard','acc-consultation','chef-patients','chef-dossier','chef-pharmacie','chef-alertes','chef-mensuel','chef-prix','chef-audit','chef-exports'],
 };
@@ -501,7 +501,7 @@ const TAB_LABELS = {
   'acc-reception':'Accueil patient','acc-constantes':'Constantes','acc-consultation':'Consultation','acc-liste':'File du jour',
   'soins-actes':'Réaliser soins','soins-obs':'Observation','soins-liste':'Soins du jour',
   'labo-saisie':'Saisie actes','labo-resultats':'Résultats','labo-feuilles':'Feuilles CMU',
-  'pha-vente':'Délivrance','pha-stock':'Stock & lots','pha-mouvements':'Mouvements','pha-inventaire':'Inventaire','pha-historique':'Historique 2026','pha-tableau':'Tableau de bord',
+  'pha-vente':'Délivrance','pha-stock':'Stock & lots','pha-mouvements':'Mouvements','pha-inventaire':'Inventaire','pha-tableau':'Tableau de bord',
   'cpt-caisse':'Caisse du jour','cpt-cloture':'Clôture','cpt-rapports':'Rapports',
   'chef-dashboard':'Tableau de bord','chef-alertes':'Alertes','chef-patients':'Dossiers patients','chef-dossier':'Dossier complet','chef-pharmacie':'Pharmacie','chef-mensuel':'Statistiques','chef-prix':'Gestion prix','chef-audit':'Traçabilité','chef-exports':'Exports',
 };
@@ -2483,11 +2483,6 @@ function renderPharmaHistory(prefix,view){
     ${filtered.length>300?`<div class="al al-warn no-print" style="margin-top:10px"><strong>Affichage limité</strong>Les 300 premières lignes sont affichées. Affinez les filtres pour consulter le reste.</div>`:''}
   </div>`;
 }
-
-// ── PHARMACIE — Registre historique importé ─────────────
-VIEW['pha-historique'] = (el) => {
-  el.innerHTML=renderPharmaHistory('pha-history','pha-historique');
-};
 
 // ── PHARMACIE — Tableau de bord ─────────────────────────
 VIEW['pha-tableau'] = (el) => {
