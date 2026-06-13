@@ -91,3 +91,23 @@ presente dans le navigateur est normale uniquement lorsque RLS est active.
 Les anciennes lignes restent lisibles apres authentification selon le role.
 Lorsqu'une ligne est modifiee, le trigger lui attribue automatiquement le compte
 connecte. Faire une sauvegarde Supabase avant la migration.
+
+## Registre pharmacie fevrier-juin 2026
+
+Apres le controle des stocks, executer
+`supabase/migrations/202606130006_import_pharma_history.sql`. La migration
+importe en lecture seule:
+
+- 133 references documentaires;
+- 222 alias de produits;
+- 712 lignes du registre, pour un total de 1 492 710,748 FCFA;
+- 152 composants de kits, avec un montant composant fixe a zero.
+
+Ces donnees sont accessibles aux gestionnaires pharmacie et au Medecin-Chef
+avec MFA. Elles n'affectent ni le stock courant, ni les lots, ni les ventes, ni
+les patients. La migration peut etre relancee: les cles d'evenement empechent
+les doublons.
+
+Executer ensuite `supabase/checks/pharma_history_import_report.sql`. Le rapport
+doit confirmer 712 lignes, 152 composants, aucun composant sans produit et un
+montant total de 1 492 710,748 FCFA.

@@ -273,7 +273,7 @@ const SUPABASE_URL = 'https://wsnehnempnexzxzuklbv.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_FKlt6IevUM0nceNw13qiMA_OxMponku';
 const INSTITUTION_LOGO_URL = './assets/logo.png';
 const CLOUD_TABLE = 'csa_events';
-const SYNC_TABLES = ['patients','consultations','constantes','transactions','labo_actes','soins','observations','pharma_ventes','pharma_stock','pharma_lots','pharma_mouvements','pharma_inventaires','clotures','audit_logs'];
+const SYNC_TABLES = ['patients','consultations','constantes','transactions','labo_actes','soins','observations','pharma_ventes','pharma_stock','pharma_lots','pharma_mouvements','pharma_inventaires','pharma_catalogue_historique','pharma_aliases','pharma_registre_historique','pharma_composants_historiques','clotures','audit_logs'];
 let supa = null;
 let IS_ONLINE = navigator.onLine;
 let SYNC_Q = JSON.parse(localStorage.getItem('csa2_sq')||'[]');
@@ -484,7 +484,7 @@ const MODULE_TABS = {
   accueil:['acc-reception','acc-constantes','acc-consultation','acc-liste'],
   soins:  ['acc-consultation','soins-actes','soins-obs','soins-liste'],
   labo:   ['labo-saisie','labo-resultats','labo-feuilles'],
-  pharmacie:['pha-vente','pha-stock','pha-mouvements','pha-inventaire','pha-tableau'],
+  pharmacie:['pha-vente','pha-stock','pha-mouvements','pha-inventaire','pha-historique','pha-tableau'],
   compta: ['cpt-caisse','cpt-cloture','cpt-rapports'],
   chef:   ['chef-dashboard','acc-consultation','chef-patients','chef-dossier','chef-pharmacie','chef-alertes','chef-mensuel','chef-prix','chef-audit','chef-exports'],
 };
@@ -501,7 +501,7 @@ const TAB_LABELS = {
   'acc-reception':'Accueil patient','acc-constantes':'Constantes','acc-consultation':'Consultation','acc-liste':'File du jour',
   'soins-actes':'Réaliser soins','soins-obs':'Observation','soins-liste':'Soins du jour',
   'labo-saisie':'Saisie actes','labo-resultats':'Résultats','labo-feuilles':'Feuilles CMU',
-  'pha-vente':'Délivrance','pha-stock':'Stock & lots','pha-mouvements':'Mouvements','pha-inventaire':'Inventaire','pha-tableau':'Tableau de bord',
+  'pha-vente':'Délivrance','pha-stock':'Stock & lots','pha-mouvements':'Mouvements','pha-inventaire':'Inventaire','pha-historique':'Historique 2026','pha-tableau':'Tableau de bord',
   'cpt-caisse':'Caisse du jour','cpt-cloture':'Clôture','cpt-rapports':'Rapports',
   'chef-dashboard':'Tableau de bord','chef-alertes':'Alertes','chef-patients':'Dossiers patients','chef-dossier':'Dossier complet','chef-pharmacie':'Pharmacie','chef-mensuel':'Statistiques','chef-prix':'Gestion prix','chef-audit':'Traçabilité','chef-exports':'Exports',
 };
@@ -2387,6 +2387,108 @@ function submitPharmaInventory(){
   showView('pha-inventaire');
 }
 
+function pharmaHistoryData(){
+  return DB.get('pharma_registre_historique').slice()
+    .sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))||String(b.id||'').localeCompare(String(a.id||'')));
+}
+function updatePharmaHistoryFilter(prefix,key,value,view){
+  localStorage.setItem(`${prefix}-${key}`,value);
+  showView(view);
+}
+function resetPharmaHistoryFilters(prefix,view){
+  ['from','to','search','financing'].forEach(key=>localStorage.removeItem(`${prefix}-${key}`));
+  showView(view);
+}
+function renderPharmaHistory(prefix,view){
+  const rows=pharmaHistoryData();
+  const components=DB.get('pharma_composants_historiques');
+  const from=localStorage.getItem(`${prefix}-from`)||'';
+  const to=localStorage.getItem(`${prefix}-to`)||'';
+  const search=(localStorage.getItem(`${prefix}-search`)||'').trim().toLowerCase();
+  const financing=localStorage.getItem(`${prefix}-financing`)||'TOUS';
+  const filtered=rows.filter(row=>{
+    const date=String(row.date||'');
+    if(from&&date<from) return false;
+    if(to&&date>to) return false;
+    if(financing!=='TOUS'&&String(row.financing||'')!==financing) return false;
+    if(search&&![
+      row.original_label,row.normalized_source_label,row.canonical_name,row.product_id,
+      row.record_type,row.source_observation
+    ].some(value=>String(value||'').toLowerCase().includes(search))) return false;
+    return true;
+  });
+  const total=filtered.reduce((sum,row)=>sum+(+row.amount||0),0);
+  const quantity=filtered.reduce((sum,row)=>sum+(+row.quantity||0),0);
+  const kitRows=filtered.filter(row=>row.record_type==='KIT_FINANCIER');
+  const financingValues=[...new Set(rows.map(row=>row.financing).filter(Boolean))].sort();
+  const byProduct={};
+  filtered.filter(row=>row.record_type!=='KIT_FINANCIER').forEach(row=>{
+    const key=row.product_id||row.canonical_name||row.normalized_source_label||'Non rapproché';
+    if(!byProduct[key]) byProduct[key]={name:row.canonical_name||row.normalized_source_label||key,quantity:0,amount:0,lines:0};
+    byProduct[key].quantity+=+row.quantity||0;
+    byProduct[key].amount+=+row.amount||0;
+    byProduct[key].lines++;
+  });
+  const topProducts=Object.values(byProduct).sort((a,b)=>b.amount-a.amount).slice(0,15);
+  return `
+  <div class="al al-info"><strong>Historique documentaire, février à juin 2026</strong>Ces données servent à l'analyse des sorties passées. Elles ne modifient ni le stock courant, ni les lots, ni les ventes, ni les dossiers patients.</div>
+  <div class="g4" style="margin-bottom:12px">
+    <div class="kpi" style="border-left-color:var(--marine)"><div class="kpi-ico">📚</div><div class="kpi-lbl">Lignes filtrées</div><div class="kpi-val">${filtered.length}</div></div>
+    <div class="kpi" style="border-left-color:var(--orang)"><div class="kpi-ico">💰</div><div class="kpi-lbl">Montant documenté</div><div class="kpi-val" style="font-size:15px;color:var(--orang)">${fmt(total)} F</div></div>
+    <div class="kpi" style="border-left-color:var(--vert)"><div class="kpi-ico">📦</div><div class="kpi-lbl">Quantité enregistrée</div><div class="kpi-val" style="color:var(--vert)">${fmt(quantity)}</div></div>
+    <div class="kpi" style="border-left-color:var(--or)"><div class="kpi-ico">🧰</div><div class="kpi-lbl">Kits financiers</div><div class="kpi-val" style="color:var(--or)">${kitRows.length}</div><div class="kpi-sub">${components.length} composants séparés</div></div>
+  </div>
+  <div class="card no-print">
+    <div class="card-title">Filtres de consultation</div>
+    <div class="fr">
+      <label>Du</label><input type="date" value="${escHtml(from)}" onchange="updatePharmaHistoryFilter('${prefix}','from',this.value,'${view}')">
+      <label>Au</label><input type="date" value="${escHtml(to)}" onchange="updatePharmaHistoryFilter('${prefix}','to',this.value,'${view}')">
+      <label>Financement</label><select onchange="updatePharmaHistoryFilter('${prefix}','financing',this.value,'${view}')">
+        <option value="TOUS">Tous</option>${financingValues.map(value=>`<option value="${escHtml(value)}" ${financing===value?'selected':''}>${escHtml(value)}</option>`).join('')}
+      </select>
+    </div>
+    <div class="fr"><label>Recherche</label><input type="text" value="${escHtml(localStorage.getItem(`${prefix}-search`)||'')}"
+      placeholder="Produit, ancien libellé, référence..." onchange="updatePharmaHistoryFilter('${prefix}','search',this.value,'${view}')" style="flex:1">
+      <button class="btn btn-out btn-sm" onclick="resetPharmaHistoryFilters('${prefix}','${view}')">Réinitialiser</button></div>
+  </div>
+  <div class="g2">
+    <div class="card">
+      <div class="card-title">Produits les plus importants — filtre actif</div>
+      <div class="tw"><table><tr><th>Produit</th><th>Lignes</th><th>Quantité</th><th>Montant</th></tr>
+        ${topProducts.map(row=>`<tr><td style="font-weight:700">${escHtml(row.name)}</td><td>${row.lines}</td><td>${fmt(row.quantity)}</td><td>${fmt(row.amount)} F</td></tr>`).join('')||'<tr><td colspan="4" style="text-align:center;color:#aaa">Aucune donnée</td></tr>'}
+      </table></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Contrôles d'intégrité</div>
+      <div class="recu-line"><span>Total complet attendu</span><strong>1 492 710,748 F</strong></div>
+      <div class="recu-line"><span>Lignes complètes attendues</span><strong>712</strong></div>
+      <div class="recu-line"><span>Composants de kits</span><strong>${components.length} / 152</strong></div>
+      <div class="recu-line"><span>Impact sur stock courant</span><strong style="color:var(--vert)">0</strong></div>
+      <div class="recu-line"><span>HPV</span><strong>Hydrosol Poly Vitamine</strong></div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title">Registre historique détaillé — ${filtered.length} ligne(s)</div>
+    <div class="tw"><table>
+      <tr><th>Date</th><th>Page</th><th>Libellé du registre</th><th>Produit rapproché</th><th>Type</th><th>Quantité</th><th>Montant</th><th>Financement</th><th>Observation</th></tr>
+      ${filtered.slice(0,300).map(row=>`<tr>
+        <td style="white-space:nowrap">${fmtD(row.date)}</td><td>${row.page||'—'}</td>
+        <td>${escHtml(row.original_label||row.normalized_source_label||'—')}</td>
+        <td style="font-weight:700">${escHtml(row.canonical_name||'Non rapproché')}<div style="font-size:9px;color:var(--muted)">${escHtml(row.product_id||'')}</div></td>
+        <td><span class="badge ${row.record_type==='KIT_FINANCIER'?'b-warn':'b-ok'}">${escHtml(row.record_type||'—')}</span></td>
+        <td>${fmt(+row.quantity||0)}</td><td style="font-weight:700">${fmt(+row.amount||0)} F</td>
+        <td>${escHtml(row.financing||'—')}</td><td style="font-size:10px">${escHtml(row.source_observation||'—')}</td>
+      </tr>`).join('')||'<tr><td colspan="9" style="text-align:center;color:#aaa;padding:16px">Aucune ligne pour ce filtre</td></tr>'}
+    </table></div>
+    ${filtered.length>300?`<div class="al al-warn no-print" style="margin-top:10px"><strong>Affichage limité</strong>Les 300 premières lignes sont affichées. Affinez les filtres pour consulter le reste.</div>`:''}
+  </div>`;
+}
+
+// ── PHARMACIE — Registre historique importé ─────────────
+VIEW['pha-historique'] = (el) => {
+  el.innerHTML=renderPharmaHistory('pha-history','pha-historique');
+};
+
 // ── PHARMACIE — Tableau de bord ─────────────────────────
 VIEW['pha-tableau'] = (el) => {
   const ventes=DB.get('pharma_ventes');
@@ -2760,7 +2862,8 @@ VIEW['chef-pharmacie'] = (el) => {
         <td style="color:${(+m.quantite||0)>=0?'var(--vert)':'var(--rouge)'};font-weight:700">${(+m.quantite||0)>0?'+':''}${fmt(+m.quantite||0)}</td>
         <td>${fmt(+m.stock_avant||0)}</td><td>${fmt(+m.stock_apres||0)}</td><td>${escHtml(m.motif||'—')}</td><td>${escHtml(m.agent_nom||'—')}</td></tr>`).join('')||'<tr><td colspan="9" style="text-align:center;color:#aaa">Aucun mouvement</td></tr>'}
     </table></div>
-  </div>`;
+  </div>
+  ${renderPharmaHistory('chef-pharma-history','chef-pharmacie')}`;
 };
 
 function decidePharmaInventory(id,approve){
