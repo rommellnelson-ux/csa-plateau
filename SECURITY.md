@@ -158,3 +158,24 @@ peut saisir et consulter:
 Pour un patient CMU, un produit marque non eligible CMU est facture au tarif
 hors CMU. Executer ensuite
 `supabase/checks/pharma_catalogue_financial_report.sql`.
+
+## Coherence du referentiel pharmacie et codes EAN
+
+Executer
+`supabase/migrations/202606130009_normalize_pharma_catalogue_ean.sql`
+apres la migration 008. Cette migration harmonise les formes galeniques et les
+conditionnements, puis ajoute le champ EAN sans modifier les stocks, les lots
+ou les prix.
+
+Le code EAN, le dosage, la forme et le conditionnement sont modifiables
+uniquement depuis l'espace Medecin-Chef. Un EAN renseigne doit comporter 8, 12,
+13 ou 14 chiffres, avoir une cle de controle valide et ne pas etre affecte a
+deux produits differents.
+
+Un declencheur PostgreSQL protege egalement les metadonnees du catalogue, les
+prix, l'eligibilite CMU et les seuils contre toute modification par un compte
+pharmacie. Le compte pharmacie conserve le droit de saisir les mouvements, les
+lots et les quantites de stock.
+
+Executer ensuite
+`supabase/checks/pharma_catalogue_coherence_report.sql`.
