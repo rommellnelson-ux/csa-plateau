@@ -103,11 +103,32 @@ importe en lecture seule:
 - 712 lignes du registre, pour un total de 1 492 710,748 FCFA;
 - 152 composants de kits, avec un montant composant fixe a zero.
 
-Ces donnees sont accessibles aux gestionnaires pharmacie et au Medecin-Chef
-avec MFA. Elles n'affectent ni le stock courant, ni les lots, ni les ventes, ni
-les patients. La migration peut etre relancee: les cles d'evenement empechent
-les doublons.
+Ces donnees sont reservees au Medecin-Chef avec MFA. Elles n'affectent ni le
+stock courant, ni les lots, ni les ventes, ni les patients. La migration peut
+etre relancee: les cles d'evenement empechent les doublons.
 
 Executer ensuite `supabase/checks/pharma_history_import_report.sql`. Le rapport
 doit confirmer 712 lignes, 152 composants, aucun composant sans produit et un
 montant total de 1 492 710,748 FCFA.
+
+## Catalogue pharmacie operationnel V4
+
+Executer ensuite
+`supabase/migrations/202606130007_import_current_pharma_catalogue.sql`.
+Cette migration:
+
+- archive les 42 produits et leurs lots precharges pour la demonstration;
+- cree 125 references actives issues de `Base_Pharmaceutique_CSA_V4.xlsx`,
+  dont 103 medicaments et 22 consommables;
+- initialise tous les stocks, seuils et prix a zero;
+- conserve les anciennes lignes et mouvements a des fins d'audit;
+- reserve techniquement le registre historique au seul Medecin-Chef avec MFA.
+
+Les quantites, numeros de lot, dates de peremption, fournisseurs et prix ne
+doivent pas etre deduits du registre historique. Ils doivent etre saisis apres
+inventaire physique et validation des tarifs. La migration est relancable sans
+ecraser les saisies operationnelles ulterieures.
+
+Executer enfin `supabase/checks/current_pharma_catalogue_report.sql`. Le premier
+resultat doit indiquer 125 references actives, 42 produits de demonstration
+archives, un stock initial nul et 125 prix a valider.
