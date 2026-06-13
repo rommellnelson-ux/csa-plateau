@@ -343,9 +343,12 @@ const MEDS_DEMO_ARCHIVE = [
 ];
 const isDemoMedicineId=(id)=>/^M(?:00[1-9]|0[1-3][0-9]|04[0-2])$/.test(String(id||''));
 
-// Calcul prix CMU = cession × 1.15
-function pxCMU(med){ return Math.round(med.px_cession * 1.15); }
+function pxCMU(med){ return med.cmu_eligible ? Math.round(+med.px_cmu||0) : 0; }
 function pxNA(med){ return Math.round((med.px_na ?? med.px_cession) || 0); }
+function productMargin(salePrice,purchasePrice){
+  const sale=+salePrice||0,purchase=+purchasePrice||0;
+  return {amount:sale-purchase,rate:purchase>0?((sale-purchase)/purchase*100):0};
+}
 
 // ════════════════════════════════════════════════════════
 // CATALOGUE LABO — 40+ actes NGAMB
@@ -2063,7 +2066,7 @@ VIEW['pha-vente'] = (el) => {
               <div style="flex:1">
                 <div style="font-size:11px;font-weight:700">${m.nom}</div>
                 <div style="font-size:9px;color:#aaa">${m.dci} | ${m.forme} | Stock: <span style="color:${m.catalogue_status==='A_INVENTORIER'?'var(--orang)':isOperationalStockAlert(m)?'var(--rouge)':'var(--vert)'};font-weight:700">${m.stock}</span></div>
-                <div style="font-size:9px;color:var(--muted)">FPM: ${fmt(m.px_cession)}F | CMU: ${fmt(pxCMU(m))}F | NA: ${fmt(pxNA(m))}F</div>
+                <div style="font-size:9px;color:var(--muted)">FPM: ${fmt(m.px_cession)}F | CMU: ${m.cmu_eligible?fmt(pxCMU(m))+'F':'non éligible'} | Hors CMU: ${fmt(pxNA(m))}F</div>
               </div>
               <div style="text-align:right;min-width:100px">
                 <input type="number" class="ph-qty" data-id="${m.id}" data-nom="${m.nom}" data-px-fpm="${m.px_cession}" data-px-cmu="${pxCMU(m)}" data-px-na="${pxNA(m)}" min="0" value="0" onchange="updatePhaTotal()" style="width:60px;padding:4px">
@@ -2104,11 +2107,13 @@ function updatePhaTotal(){
   const s=document.getElementById('ph-statut')?.value||'FPM';
   const pid=document.getElementById('ph-pid')?.value||'';
   const sf=getEffectiveBillingStatut(pid,s);
+  const stock=DB.getStock();
   let tot=0;
   document.querySelectorAll('.ph-qty').forEach(i=>{
     const q=+i.value||0;
     if(q>0){
-      const px=sf==='CMU'?+i.dataset.pxCmu:sf==='NA'?+i.dataset.pxNa:+i.dataset.pxFpm;
+      const med=stock.find(m=>m.id===i.dataset.id);
+      const px=sf==='CMU'?(med?.cmu_eligible?pxCMU(med):pxNA(med)):sf==='NA'?pxNA(med):(+med?.px_cession||0);
       tot+=q*px;
     }
   });
@@ -2150,9 +2155,9 @@ function savePharmaVente(){
   document.querySelectorAll('.ph-qty').forEach(i=>{
     const q=+i.value||0;
     if(q>0){
-      const px=sf==='CMU'?+i.dataset.pxCmu:sf==='NA'?+i.dataset.pxNa:+i.dataset.pxFpm;
       const idx=stock.findIndex(m=>m.id===i.dataset.id);
       if(idx>=0){
+        const px=sf==='CMU'?(stock[idx].cmu_eligible?pxCMU(stock[idx]):pxNA(stock[idx])):sf==='NA'?pxNA(stock[idx]):(+stock[idx].px_cession||0);
         const allocations=consumeLots(stock[idx],lots,q);
         items.push({id:i.dataset.id,nom:i.dataset.nom,qte:q,pu:px,montant:q*px,lots:allocations});
         tot+=q*px;
@@ -2226,20 +2231,48 @@ VIEW['pha-stock'] = (el) => {
   const toPrice=stock.filter(m=>(+m.px_cession||0)<=0);
   const cats=[...new Set(stock.map(m=>m.categorie))];
   const catFilter=localStorage.getItem('pha-cat-filter')||'Tous';
-  const displayed=catFilter==='Tous'?stock:stock.filter(m=>m.categorie===catFilter);
+  const search=(localStorage.getItem('pha-stock-search')||'').trim().toLowerCase();
+  const formFilter=localStorage.getItem('pha-form-filter')||'Toutes';
+  const packFilter=localStorage.getItem('pha-pack-filter')||'Tous';
+  const cmuFilter=localStorage.getItem('pha-cmu-filter')||'Tous';
+  const forms=[...new Set(stock.map(m=>m.forme).filter(Boolean))].sort();
+  const packs=[...new Set(stock.map(m=>m.conditionnement||m.unite).filter(Boolean))].sort();
+  const displayed=stock.filter(m=>{
+    if(catFilter!=='Tous'&&m.categorie!==catFilter) return false;
+    if(formFilter!=='Toutes'&&m.forme!==formFilter) return false;
+    if(packFilter!=='Tous'&&(m.conditionnement||m.unite)!==packFilter) return false;
+    if(cmuFilter==='CMU'&&!m.cmu_eligible) return false;
+    if(cmuFilter==='HORS_CMU'&&m.cmu_eligible) return false;
+    return !search||[
+      m.code_produit,m.code_atc,m.nom,m.dci,m.noms_commerciaux,m.dosage,
+      m.forme,m.conditionnement,m.categorie
+    ].some(value=>String(value||'').toLowerCase().includes(search));
+  });
   el.innerHTML=`
-  <div class="g4 no-print" style="margin-bottom:12px">
+  <div class="g2 no-print" style="margin-bottom:12px">
     <div class="kpi" style="border-left-color:var(--vert)"><div class="kpi-ico">📦</div><div class="kpi-lbl">Références</div><div class="kpi-val" style="color:var(--vert)">${stock.length}</div></div>
     <div class="kpi" style="border-left-color:${alertes.length?'var(--rouge)':'var(--vert)'}"><div class="kpi-ico">⚠️</div><div class="kpi-lbl">Alertes stock</div><div class="kpi-val" style="color:${alertes.length?'var(--rouge)':'var(--vert)'}">${alertes.length}</div></div>
-    <div class="kpi" style="border-left-color:var(--or)"><div class="kpi-ico">💰</div><div class="kpi-lbl">Valeur stock (cession)</div><div class="kpi-val" style="font-size:14px;color:var(--or)">${fmt(stock.reduce((s,m)=>s+m.stock*m.px_cession,0))} F</div></div>
-    <div class="kpi" style="border-left-color:var(--bleu)"><div class="kpi-ico">🏥</div><div class="kpi-lbl">Valeur CMU (+15%)</div><div class="kpi-val" style="font-size:14px;color:var(--bleu)">${fmt(stock.reduce((s,m)=>s+m.stock*pxCMU(m),0))} F</div></div>
   </div>
   ${(toInventory.length||toPrice.length)?`<div class="al al-info no-print"><strong>Initialisation du catalogue réel</strong>${toInventory.length} référence(s) restent à inventorier et ${toPrice.length} tarif(s) de cession restent à valider par le Médecin-Chef. Les anciennes quantités de démonstration ne sont pas utilisées.</div>`:''}
   ${alertes.length?`<div class="al al-err no-print"><strong>⚠️ ${alertes.length} article(s) en alerte de stock :</strong> ${alertes.map(m=>`${m.nom} (${m.stock} restants, seuil ${m.seuil})`).join(' | ')}</div>`:''}
   <div class="card">
-    <div class="card-title">État des stocks — Pharmacie</div>
+    <div class="card-title">Catalogue et état des stocks — Pharmacie</div>
     <div class="fr no-print" style="margin-bottom:10px">
-      <label>Catégorie :</label>
+      <input type="text" value="${escHtml(localStorage.getItem('pha-stock-search')||'')}" placeholder="Code, médicament, DCI, dosage..."
+        onchange="localStorage.setItem('pha-stock-search',this.value);showView('pha-stock')" style="flex:1;min-width:220px">
+      <label>Forme</label><select onchange="localStorage.setItem('pha-form-filter',this.value);showView('pha-stock')">
+        <option>Toutes</option>${forms.map(value=>`<option ${formFilter===value?'selected':''}>${escHtml(value)}</option>`).join('')}
+      </select>
+      <label>Conditionnement</label><select onchange="localStorage.setItem('pha-pack-filter',this.value);showView('pha-stock')">
+        <option>Tous</option>${packs.map(value=>`<option ${packFilter===value?'selected':''}>${escHtml(value)}</option>`).join('')}
+      </select>
+      <label>CMU</label><select onchange="localStorage.setItem('pha-cmu-filter',this.value);showView('pha-stock')">
+        <option value="Tous">Tous</option><option value="CMU" ${cmuFilter==='CMU'?'selected':''}>Produits CMU</option>
+        <option value="HORS_CMU" ${cmuFilter==='HORS_CMU'?'selected':''}>Hors CMU</option>
+      </select>
+    </div>
+    <div class="fr no-print" style="margin-bottom:10px">
+      <label>Catégorie</label>
       <select onchange="localStorage.setItem('pha-cat-filter',this.value);showView('pha-stock')">
         <option ${catFilter==='Tous'?'selected':''}>Tous</option>
         ${cats.map(c=>`<option ${catFilter===c?'selected':''}>${c}</option>`).join('')}
@@ -2251,10 +2284,11 @@ VIEW['pha-stock'] = (el) => {
       <input type="date" id="sk-add-exp" title="Date de péremption">
       <input type="text" id="sk-add-fournisseur" placeholder="Fournisseur" style="width:130px">
       <button class="btn btn-success btn-sm" onclick="addStockEntry()">+ Entrée</button>
+      <button class="btn btn-out btn-sm" onclick="['pha-stock-search','pha-form-filter','pha-pack-filter','pha-cmu-filter','pha-cat-filter'].forEach(k=>localStorage.removeItem(k));showView('pha-stock')">Réinitialiser</button>
     </div>
     <div id="stock-table-wrap" class="tw">
     <table>
-      <tr><th>Médicament</th><th>DCI</th><th>Catég.</th><th>Forme</th><th>Stock</th><th>Seuil</th><th>État</th><th>Prix cession</th><th>Prix CMU (+15%)</th></tr>
+      <tr><th>N°</th><th>Code</th><th>Nom commercial / produit</th><th>DCI</th><th>Dosage</th><th>Forme</th><th>Conditionnement</th><th>CMU</th><th>Qté théorique de référence</th><th>Stock disponible</th><th>État</th></tr>
       ${displayed.map(m=>{
         const pending=m.catalogue_status==='A_INVENTORIER';
         const pct=Math.min(100,m.seuil>0?Math.round(m.stock/m.seuil*50):100);
@@ -2262,15 +2296,14 @@ VIEW['pha-stock'] = (el) => {
         const etat=pending?'b-warn':isOperationalStockAlert(m)?'b-err':m.stock<=m.seuil*2?'b-warn':'b-ok';
         const etatLbl=pending?'À INVENTORIER':isOperationalStockAlert(m)?'CRITIQUE':m.stock<=m.seuil*2?'FAIBLE':'OK';
         return `<tr>
-          <td style="font-weight:700;font-size:11px">${m.nom}</td>
-          <td style="font-size:10px;color:var(--muted)">${m.dci}</td>
-          <td style="font-size:10px">${m.categorie}</td>
-          <td style="font-size:10px">${m.forme}</td>
-          <td style="font-weight:700;color:${col}">${m.stock} ${m.unite}</td>
-          <td>${m.seuil}</td>
+          <td>${displayed.indexOf(m)+1}</td><td style="font-weight:700">${escHtml(m.code_produit||m.code_atc||m.source_product_id||'—')}</td>
+          <td style="font-weight:700;min-width:210px">${escHtml(m.nom||'—')}<div style="font-size:9px;color:var(--muted)">${escHtml(m.noms_commerciaux||'')}</div></td>
+          <td>${escHtml(m.dci||'—')}</td><td>${escHtml(m.dosage||'—')}</td><td>${escHtml(m.forme||'—')}</td>
+          <td>${escHtml(m.conditionnement||m.unite||'—')}</td>
+          <td><span class="badge ${m.cmu_eligible?'b-cmu':'b-na'}">${m.cmu_eligible?'OUI':'NON'}</span></td>
+          <td title="Sorties historiques documentées, pas le stock physique actuel">${fmt(+m.quantite_theorique||+m.historique_quantite||0)}</td>
+          <td style="font-weight:700;color:${col}">${fmt(+m.stock||0)} ${escHtml(m.unite||'')}</td>
           <td><span class="badge ${etat}">${etatLbl}</span></td>
-          <td>${fmt(m.px_cession)} F</td>
-          <td style="color:var(--cmu)">${fmt(pxCMU(m))} F</td>
         </tr>`;
       }).join('')}
     </table>
@@ -2362,8 +2395,10 @@ VIEW['pha-inventaire'] = (el) => {
     <div class="fr"><label>Référence</label><input id="inv-reference" value="INV-${today()}" style="max-width:180px">
       <label>Observation générale</label><input id="inv-observation" placeholder="Contexte, équipe, emplacement..." style="flex:1"></div>
     <div class="tw"><table>
-      <tr><th>Médicament</th><th>Théorique</th><th>Compté</th><th>Justification si écart</th></tr>
-      ${stock.map(m=>`<tr><td style="font-weight:700">${escHtml(m.nom)}</td><td>${fmt(+m.stock||0)} ${escHtml(m.unite||'')}</td>
+      <tr><th>Médicament</th><th>Référence historique</th><th>Théorique système</th><th>Compté</th><th>Justification si écart</th></tr>
+      ${stock.map(m=>`<tr><td style="font-weight:700">${escHtml(m.nom)}</td>
+        <td title="Quantités sorties sur la période historique">${fmt(+m.quantite_theorique||+m.historique_quantite||0)} ${escHtml(m.unite||'')}</td>
+        <td>${fmt(+m.stock||0)} ${escHtml(m.unite||'')}</td>
         <td><input type="number" class="inv-physique" data-id="${m.id}" data-theorique="${+m.stock||0}" min="0" value="${+m.stock||0}" style="width:85px"></td>
         <td><input type="text" class="inv-motif" data-id="${m.id}" placeholder="Perte, casse, erreur de saisie..." style="width:100%"></td></tr>`).join('')}
     </table></div>
@@ -2871,6 +2906,13 @@ VIEW['chef-pharmacie'] = (el) => {
   const alertes=stock.filter(isOperationalStockAlert);
   const toInventory=stock.filter(m=>m.catalogue_status==='A_INVENTORIER');
   const toPrice=stock.filter(m=>(+m.px_cession||0)<=0);
+  const stockAcquisitionValue=stock.reduce((sum,m)=>sum+(+m.stock||0)*(+m.px_achat||0),0);
+  const stockCmuValue=stock.reduce((sum,m)=>sum+(m.cmu_eligible?(+m.stock||0)*pxCMU(m):0),0);
+  const stockNonCmuValue=stock.reduce((sum,m)=>sum+(+m.stock||0)*pxNA(m),0);
+  const potentialMargin=stock.reduce((sum,m)=>{
+    const sale=m.cmu_eligible?pxCMU(m):pxNA(m);
+    return sum+(+m.stock||0)*(sale-(+m.px_achat||0));
+  },0);
   el.innerHTML=`
   <div class="g4" style="margin-bottom:12px">
     <div class="kpi" style="border-left-color:var(--orang)"><div class="kpi-ico">💊</div><div class="kpi-lbl">Délivrances</div><div class="kpi-val" style="color:var(--orang)">${ventes.length}</div></div>
@@ -2911,17 +2953,28 @@ VIEW['chef-pharmacie'] = (el) => {
   </div>
   <div class="card">
     <div class="card-title">État actuel du stock — Lecture seule</div>
+    <div class="g4" style="margin-bottom:12px">
+      <div class="kpi" style="border-left-color:var(--marine)"><div class="kpi-lbl">Valeur d'acquisition</div><div class="kpi-val" style="font-size:14px">${fmt(stockAcquisitionValue)} F</div></div>
+      <div class="kpi" style="border-left-color:var(--cmu)"><div class="kpi-lbl">Valeur de vente CMU</div><div class="kpi-val" style="font-size:14px;color:var(--cmu)">${fmt(stockCmuValue)} F</div></div>
+      <div class="kpi" style="border-left-color:var(--orang)"><div class="kpi-lbl">Valeur hors CMU</div><div class="kpi-val" style="font-size:14px;color:var(--orang)">${fmt(stockNonCmuValue)} F</div></div>
+      <div class="kpi" style="border-left-color:var(--vert)"><div class="kpi-lbl">Marge potentielle</div><div class="kpi-val" style="font-size:14px;color:${potentialMargin>=0?'var(--vert)':'var(--rouge)'}">${fmt(potentialMargin)} F</div></div>
+    </div>
     ${(toInventory.length||toPrice.length)?`<div class="al al-info"><strong>Catalogue réel en cours d'initialisation</strong>${toInventory.length} référence(s) à inventorier et ${toPrice.length} tarif(s) à valider. Les zéros affichés sont des valeurs d'attente, pas des ruptures de stock.</div>`:''}
     ${alertes.length?`<div class="al al-err"><strong>${alertes.length} article(s) au seuil ou en dessous</strong>${alertes.map(m=>`${escHtml(m.nom)} : ${fmt(+m.stock||0)} (seuil ${fmt(+m.seuil||0)})`).join(' | ')}</div>`:''}
     <div class="tw"><table>
-      <tr><th>Médicament</th><th>DCI</th><th>Catégorie</th><th>Stock</th><th>Seuil</th><th>État</th><th>Prix cession</th><th>Prix CMU</th><th>Prix non-assuré</th></tr>
+      <tr><th>Code</th><th>Médicament</th><th>DCI</th><th>CMU</th><th>Stock</th><th>État</th><th>Acquisition</th><th>Vente CMU</th><th>Vente hors CMU</th><th>Marge unitaire</th></tr>
       ${stock.map(m=>{
         const pending=m.catalogue_status==='A_INVENTORIER';
         const low=isOperationalStockAlert(m);
-        return `<tr><td style="font-weight:700">${escHtml(m.nom||'—')}</td><td>${escHtml(m.dci||'—')}</td><td>${escHtml(m.categorie||'—')}</td>
+        const sale=m.cmu_eligible?pxCMU(m):pxNA(m);
+        const margin=productMargin(sale,m.px_achat);
+        return `<tr><td>${escHtml(m.code_produit||m.code_atc||m.source_product_id||'—')}</td>
+          <td style="font-weight:700">${escHtml(m.nom||'—')}</td><td>${escHtml(m.dci||'—')}</td>
+          <td><span class="badge ${m.cmu_eligible?'b-cmu':'b-na'}">${m.cmu_eligible?'OUI':'NON'}</span></td>
           <td style="font-weight:700;color:${pending?'var(--orang)':low?'var(--rouge)':'var(--vert)'}">${fmt(+m.stock||0)} ${escHtml(m.unite||'')}</td>
-          <td>${fmt(+m.seuil||0)}</td><td><span class="badge ${pending?'b-warn':low?'b-err':'b-ok'}">${pending?'À INVENTORIER':low?'ALERTE':'OK'}</span></td>
-          <td>${fmt(+m.px_cession||0)} F</td><td>${fmt(pxCMU(m))} F</td><td>${fmt(pxNA(m))} F</td></tr>`;
+          <td><span class="badge ${pending?'b-warn':low?'b-err':'b-ok'}">${pending?'À INVENTORIER':low?'ALERTE':'OK'}</span></td>
+          <td>${fmt(+m.px_achat||0)} F</td><td>${m.cmu_eligible?fmt(pxCMU(m))+' F':'—'}</td><td>${fmt(pxNA(m))} F</td>
+          <td style="color:${margin.amount>=0?'var(--vert)':'var(--rouge)'};font-weight:700">${fmt(margin.amount)} F (${fmt(margin.rate)}%)</td></tr>`;
       }).join('')}
     </table></div>
   </div>
@@ -3301,19 +3354,21 @@ VIEW['chef-mensuel'] = (el) => {
 VIEW['chef-prix'] = (el) => {
   const stock=DB.getStock();
   el.innerHTML=`
-  <div class="al al-info"><strong>Accès exclusif Médecin-Chef</strong>Vous pouvez modifier les prix de cession, les prix CMU (+15% automatique), les prix Non-assurés, et les seuils d'alerte. Modifications tracées et immédiates.</div>
-  <div class="al al-warn"><strong>Rappel</strong>Prix CMU = Prix de cession × 1.15 (calculé automatiquement). Le prix de vente FPM = prix de cession (100% couvert par l'État).</div>
+  <div class="al al-info"><strong>Accès exclusif Médecin-Chef</strong>Vous pouvez définir l'éligibilité CMU, les prix d'acquisition et de vente, puis contrôler les marges. Toutes les modifications sont tracées.</div>
+  <div class="al al-warn"><strong>Contrôle requis</strong>Le tarif CMU doit provenir de la nomenclature officielle. Il n'est plus calculé automatiquement à partir d'un pourcentage.</div>
   <div class="card">
-    <div class="card-title">Modifier les prix et seuils</div>
+    <div class="card-title">Paramétrage financier du catalogue</div>
     <div class="tw"><table>
-      <tr><th>Médicament</th><th>Catég.</th><th>Prix achat</th><th>Prix cession</th><th>Prix NA</th><th>Prix CMU (+15%)</th><th>Seuil alerte</th><th>Action</th></tr>
+      <tr><th>Code</th><th>Produit</th><th>CMU</th><th>Prix acquisition</th><th>Vente CMU</th><th>Marge CMU</th><th>Vente hors CMU</th><th>Marge hors CMU</th><th>Seuil</th><th>Action</th></tr>
       ${stock.map((m,i)=>`<tr>
-        <td style="font-size:11px;font-weight:700">${m.nom}</td>
-        <td style="font-size:10px;color:var(--muted)">${m.categorie}</td>
-        <td>${fmt(m.px_achat)} F</td>
-        <td><input type="number" id="px-c-${m.id}" value="${m.px_cession}" min="0" style="width:80px;padding:4px;border:1.5px solid var(--border);border-radius:6px" onchange="autoCalcCMU('${m.id}')"></td>
-        <td><input type="number" id="px-na-${m.id}" value="${pxNA(m)}" min="0" style="width:80px;padding:4px;border:1.5px solid var(--border);border-radius:6px"></td>
-        <td style="color:var(--cmu);font-weight:700" id="px-cmu-${m.id}">${fmt(pxCMU(m))} F</td>
+        <td style="font-size:10px">${escHtml(m.code_produit||m.code_atc||m.source_product_id||'—')}</td>
+        <td style="font-size:11px;font-weight:700;min-width:190px">${escHtml(m.nom||'—')}<div style="font-size:9px;color:var(--muted)">${escHtml(m.dosage||'')} · ${escHtml(m.conditionnement||m.unite||'')}</div></td>
+        <td><label style="display:flex;align-items:center;gap:4px"><input type="checkbox" id="cmu-${m.id}" ${m.cmu_eligible?'checked':''} onchange="toggleCmuPrice('${m.id}')"> Éligible</label></td>
+        <td><input type="number" id="px-a-${m.id}" value="${+m.px_achat||0}" min="0" style="width:85px" oninput="updatePriceMargins('${m.id}')"></td>
+        <td><input type="number" id="px-cmu-${m.id}" value="${pxCMU(m)}" min="0" style="width:85px" ${m.cmu_eligible?'':'disabled'} oninput="updatePriceMargins('${m.id}')"></td>
+        <td id="margin-cmu-${m.id}" style="font-size:10px"></td>
+        <td><input type="number" id="px-na-${m.id}" value="${pxNA(m)}" min="0" style="width:85px" oninput="updatePriceMargins('${m.id}')"></td>
+        <td id="margin-na-${m.id}" style="font-size:10px"></td>
         <td><input type="number" id="seuil-${m.id}" value="${m.seuil}" min="0" style="width:60px;padding:4px;border:1.5px solid var(--border);border-radius:6px"></td>
         <td><button class="btn btn-sm btn-success" onclick="savePrix('${m.id}')">Sauver</button></td>
       </tr>`).join('')}
@@ -3326,38 +3381,64 @@ VIEW['chef-prix'] = (el) => {
     <div class="card-title">Sécurité du compte</div>
     <div class="al al-info"><strong>Authentification Supabase</strong>Les mots de passe ne sont jamais stockés dans cette application. Leur modification et la récupération de compte sont administrées dans Supabase Auth.</div>
   </div>`;
+  setTimeout(()=>stock.forEach(m=>updatePriceMargins(m.id)),0);
 };
-function autoCalcCMU(id){
-  const v=+document.getElementById('px-c-'+id).value||0;
-  const el=document.getElementById('px-cmu-'+id);
-  if(el) el.textContent=fmt(Math.round(v*1.15))+' F';
+function toggleCmuPrice(id){
+  const eligible=document.getElementById('cmu-'+id)?.checked===true;
+  const input=document.getElementById('px-cmu-'+id);
+  if(input){input.disabled=!eligible;if(!eligible)input.value=0;}
+  updatePriceMargins(id);
+}
+function updatePriceMargins(id){
+  const purchase=+document.getElementById('px-a-'+id)?.value||0;
+  const cmuEligible=document.getElementById('cmu-'+id)?.checked===true;
+  const cmu=cmuEligible?(+document.getElementById('px-cmu-'+id)?.value||0):0;
+  const nonCmu=+document.getElementById('px-na-'+id)?.value||0;
+  const cmuMargin=productMargin(cmu,purchase);
+  const nonCmuMargin=productMargin(nonCmu,purchase);
+  const cmuEl=document.getElementById('margin-cmu-'+id);
+  const naEl=document.getElementById('margin-na-'+id);
+  if(cmuEl){
+    cmuEl.textContent=cmuEligible?`${fmt(cmuMargin.amount)} F (${fmt(cmuMargin.rate)}%)`:'—';
+    cmuEl.style.color=cmuMargin.amount>=0?'var(--vert)':'var(--rouge)';
+  }
+  if(naEl){
+    naEl.textContent=`${fmt(nonCmuMargin.amount)} F (${fmt(nonCmuMargin.rate)}%)`;
+    naEl.style.color=nonCmuMargin.amount>=0?'var(--vert)':'var(--rouge)';
+  }
 }
 function savePrix(id){
   const stock=DB.getStock();
   const idx=stock.findIndex(m=>m.id===id);
   if(idx>=0){
-    const before={px_cession:stock[idx].px_cession,px_na:pxNA(stock[idx]),seuil:stock[idx].seuil};
-    stock[idx].px_cession=+document.getElementById('px-c-'+id).value||0;
+    const before={px_achat:stock[idx].px_achat,cmu_eligible:stock[idx].cmu_eligible,px_cmu:pxCMU(stock[idx]),px_na:pxNA(stock[idx]),seuil:stock[idx].seuil};
+    stock[idx].px_achat=+document.getElementById('px-a-'+id).value||0;
+    stock[idx].cmu_eligible=document.getElementById('cmu-'+id).checked===true;
+    stock[idx].px_cmu=stock[idx].cmu_eligible?(+document.getElementById('px-cmu-'+id).value||0):0;
     stock[idx].px_na=+document.getElementById('px-na-'+id).value||0;
+    stock[idx].px_cession=stock[idx].px_na;
     stock[idx].seuil=+document.getElementById('seuil-'+id).value||0;
-    stock[idx].price_status=stock[idx].px_cession>0?'VALIDE':'A_VALIDER';
+    stock[idx].price_status=stock[idx].px_na>0&&(!stock[idx].cmu_eligible||stock[idx].px_cmu>0)?'VALIDE':'A_VALIDER';
     DB.setStock(stock);
-    logAudit('PRIX_UPDATE',{medicament:stock[idx].nom,med_id:id,before,after:{px_cession:stock[idx].px_cession,px_na:stock[idx].px_na,seuil:stock[idx].seuil}});
-    document.getElementById('px-cmu-'+id).textContent=fmt(Math.round(stock[idx].px_cession*1.15))+' F';
-    document.getElementById('px-cmu-'+id).style.background='#e8f5e9';
-    setTimeout(()=>{if(document.getElementById('px-cmu-'+id))document.getElementById('px-cmu-'+id).style.background='';},1500);
+    logAudit('PRIX_UPDATE',{medicament:stock[idx].nom,med_id:id,before,after:{px_achat:stock[idx].px_achat,cmu_eligible:stock[idx].cmu_eligible,px_cmu:stock[idx].px_cmu,px_na:stock[idx].px_na,seuil:stock[idx].seuil}});
+    updatePriceMargins(id);
   }
 }
 function saveAllPrix(){
   const stock=DB.getStock();
   stock.forEach(m=>{
-    const px=document.getElementById('px-c-'+m.id);
+    const acquisition=document.getElementById('px-a-'+m.id);
+    const cmuEligible=document.getElementById('cmu-'+m.id);
+    const cmu=document.getElementById('px-cmu-'+m.id);
     const pxna=document.getElementById('px-na-'+m.id);
     const seuil=document.getElementById('seuil-'+m.id);
-    if(px) m.px_cession=+px.value||0;
+    if(acquisition) m.px_achat=+acquisition.value||0;
+    if(cmuEligible) m.cmu_eligible=cmuEligible.checked===true;
+    if(cmu) m.px_cmu=m.cmu_eligible?(+cmu.value||0):0;
     if(pxna) m.px_na=+pxna.value||0;
+    m.px_cession=m.px_na;
     if(seuil) m.seuil=+seuil.value||0;
-    m.price_status=m.px_cession>0?'VALIDE':'A_VALIDER';
+    m.price_status=m.px_na>0&&(!m.cmu_eligible||m.px_cmu>0)?'VALIDE':'A_VALIDER';
   });
   DB.setStock(stock);
   logAudit('PRIX_UPDATE_BULK',{items:stock.length});
