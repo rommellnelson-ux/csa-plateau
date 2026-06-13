@@ -556,7 +556,7 @@ const MODULE_TABS = {
   accueil:['acc-reception','acc-constantes','acc-consultation','acc-liste'],
   soins:  ['acc-consultation','soins-actes','soins-obs','soins-liste'],
   labo:   ['labo-saisie','labo-resultats','labo-feuilles'],
-  pharmacie:['pha-vente','pha-stock','pha-mouvements','pha-inventaire','pha-tableau'],
+  pharmacie:['pha-vente','pha-stock','pha-catalogue','pha-mouvements','pha-inventaire','pha-tableau'],
   compta: ['cpt-caisse','cpt-cloture','cpt-rapports'],
   chef:   ['chef-dashboard','acc-consultation','chef-patients','chef-dossier','chef-pharmacie','chef-alertes','chef-mensuel','chef-prix','chef-audit','chef-exports'],
 };
@@ -573,7 +573,7 @@ const TAB_LABELS = {
   'acc-reception':'Accueil patient','acc-constantes':'Constantes','acc-consultation':'Consultation','acc-liste':'File du jour',
   'soins-actes':'Réaliser soins','soins-obs':'Observation','soins-liste':'Soins du jour',
   'labo-saisie':'Saisie actes','labo-resultats':'Résultats','labo-feuilles':'Feuilles CMU',
-  'pha-vente':'Délivrance','pha-stock':'Stock & lots','pha-mouvements':'Mouvements','pha-inventaire':'Inventaire','pha-tableau':'Tableau de bord',
+  'pha-vente':'Délivrance','pha-stock':'Stock & lots','pha-catalogue':'Catalogue','pha-mouvements':'Mouvements','pha-inventaire':'Inventaire','pha-tableau':'Tableau de bord',
   'cpt-caisse':'Caisse du jour','cpt-cloture':'Clôture','cpt-rapports':'Rapports',
   'chef-dashboard':'Tableau de bord','chef-alertes':'Alertes','chef-patients':'Dossiers patients','chef-dossier':'Dossier complet','chef-pharmacie':'Pharmacie','chef-mensuel':'Statistiques','chef-prix':'Gestion prix','chef-audit':'Traçabilité','chef-exports':'Exports',
 };
@@ -2356,7 +2356,7 @@ VIEW['pha-stock'] = (el) => {
     </div>
     <div id="stock-table-wrap" class="tw">
     <table>
-      <tr><th>N°</th><th>Code interne</th><th>Code EAN</th><th>Nom commercial / produit</th><th>DCI</th><th>Dosage</th><th>Forme galénique</th><th>Conditionnement</th><th>CMU</th><th>Qté théorique de référence</th><th>Stock disponible</th><th>État</th></tr>
+      <tr><th>N°</th><th>Code interne</th><th>Code EAN</th><th>Nom commercial / produit</th><th>DCI</th><th>Dosage</th><th>Forme galénique</th><th>Conditionnement</th><th>CMU</th><th>Vente CMU</th><th>Vente hors CMU</th><th>Qté théorique de référence</th><th>Stock disponible</th><th>État</th></tr>
       ${displayed.map((m,index)=>{
         const pending=m.catalogue_status==='A_INVENTORIER';
         const pct=Math.min(100,m.seuil>0?Math.round(m.stock/m.seuil*50):100);
@@ -2370,6 +2370,8 @@ VIEW['pha-stock'] = (el) => {
           <td>${escHtml(m.dci||'—')}</td><td>${escHtml(m.dosage||'Non renseigné')}</td><td>${escHtml(pharmaForm(m))}</td>
           <td>${escHtml(canonicalPharmaPack(m.conditionnement||m.unite))}</td>
           <td><span class="badge ${m.cmu_eligible?'b-cmu':'b-na'}">${m.cmu_eligible?'OUI':'NON'}</span></td>
+          <td>${m.cmu_eligible?fmt(pxCMU(m))+' F':'—'}</td>
+          <td>${fmt(pxNA(m))} F</td>
           <td title="Sorties historiques documentées, pas le stock physique actuel">${fmt(+m.quantite_theorique||+m.historique_quantite||0)}</td>
           <td style="font-weight:700;color:${col}">${fmt(+m.stock||0)} ${escHtml(canonicalPharmaPack(m.conditionnement||m.unite))}</td>
           <td><span class="badge ${etat}">${etatLbl}</span></td>
@@ -2391,6 +2393,105 @@ VIEW['pha-stock'] = (el) => {
     </table></div>
   </div>`;
 };
+
+// ── PHARMACIE — Paramétrage technique du catalogue ─────
+VIEW['pha-catalogue'] = (el) => {
+  const stock=DB.getStock();
+  const query=(localStorage.getItem('pha-catalogue-search')||'').trim().toLowerCase();
+  const displayed=stock.filter(m=>!query||[
+    m.code_produit,m.code_ean,m.nom,m.dci,m.dosage,m.forme,m.conditionnement
+  ].some(value=>String(value||'').toLowerCase().includes(query)));
+  el.innerHTML=`
+  <div class="al al-info">
+    <strong>Paramétrage autorisé aux gestionnaires pharmacie</strong>
+    Vous pouvez corriger uniquement le code interne, le produit, l'EAN, le dosage,
+    la forme et le conditionnement. Les données CMU, les prix, les marges et les
+    seuils restent réservés au Médecin-Chef.
+  </div>
+  <div class="card">
+    <div class="card-title">Référentiel technique du catalogue</div>
+    <div class="fr no-print" style="margin-bottom:10px">
+      <input type="text" value="${escHtml(localStorage.getItem('pha-catalogue-search')||'')}"
+        placeholder="Rechercher code, EAN, produit, dosage..."
+        onchange="localStorage.setItem('pha-catalogue-search',this.value);showView('pha-catalogue')"
+        style="flex:1;min-width:260px">
+      <button class="btn btn-out btn-sm" onclick="localStorage.removeItem('pha-catalogue-search');showView('pha-catalogue')">Réinitialiser</button>
+    </div>
+    <div class="tw"><table>
+      <tr><th>Code interne</th><th>Produit</th><th>EAN</th><th>Dosage</th><th>Forme</th><th>Conditionnement</th><th>Action</th></tr>
+      ${displayed.map(m=>`<tr>
+        <td><input type="text" id="pha-code-${m.id}" value="${escHtml(m.code_produit||m.source_product_id||'')}" style="width:110px"></td>
+        <td><input type="text" id="pha-nom-${m.id}" value="${escHtml(m.nom||'')}" style="min-width:190px;width:100%"></td>
+        <td><input type="text" id="pha-ean-${m.id}" value="${escHtml(m.code_ean||'')}" inputmode="numeric" maxlength="14"
+          placeholder="8, 12, 13 ou 14 chiffres" style="width:125px" oninput="this.value=normalizeEan(this.value)"></td>
+        <td><input type="text" id="pha-dosage-${m.id}" value="${escHtml(m.dosage||'')}" placeholder="Ex. 500 mg" style="width:105px"></td>
+        <td><select id="pha-forme-${m.id}" style="width:155px">${[pharmaForm(m),...PHARMA_FORMS].filter((v,i,a)=>a.indexOf(v)===i).map(v=>`<option ${pharmaForm(m)===v?'selected':''}>${escHtml(v)}</option>`).join('')}</select></td>
+        <td><select id="pha-pack-${m.id}" style="width:145px">${[canonicalPharmaPack(m.conditionnement||m.unite),...PHARMA_PACKS].filter((v,i,a)=>a.indexOf(v)===i).map(v=>`<option ${canonicalPharmaPack(m.conditionnement||m.unite)===v?'selected':''}>${escHtml(v)}</option>`).join('')}</select></td>
+        <td><button class="btn btn-success btn-sm" onclick="savePharmaCatalogueItem('${m.id}')">Sauver</button></td>
+      </tr>`).join('')||'<tr><td colspan="7" style="text-align:center;color:var(--muted)">Aucun produit trouvé</td></tr>'}
+    </table></div>
+    ${!query?`<div class="btn-row"><button class="btn btn-warn" onclick="saveAllPharmaCatalogue()">Sauvegarder tout le catalogue</button></div>`:''}
+  </div>`;
+};
+function readPharmaCatalogueItem(id){
+  return {
+    code_produit:document.getElementById('pha-code-'+id)?.value.trim()||'',
+    nom:document.getElementById('pha-nom-'+id)?.value.trim()||'',
+    code_ean:normalizeEan(document.getElementById('pha-ean-'+id)?.value),
+    dosage:document.getElementById('pha-dosage-'+id)?.value.trim()||'',
+    forme:canonicalPharmaForm(document.getElementById('pha-forme-'+id)?.value),
+    conditionnement:canonicalPharmaPack(document.getElementById('pha-pack-'+id)?.value)
+  };
+}
+function validatePharmaCatalogueItem(item,stock,currentId){
+  if(!item.code_produit)return 'Le code interne est obligatoire.';
+  if(!item.nom)return 'Le nom du produit est obligatoire.';
+  if(!isValidEan(item.code_ean))return 'Le code EAN est invalide.';
+  if(stock.some(m=>m.id!==currentId&&catalogueKey(m.code_produit)===catalogueKey(item.code_produit)))
+    return 'Ce code interne est déjà affecté à un autre produit.';
+  if(item.code_ean&&stock.some(m=>m.id!==currentId&&normalizeEan(m.code_ean)===item.code_ean))
+    return 'Ce code EAN est déjà affecté à un autre produit.';
+  return '';
+}
+function savePharmaCatalogueItem(id){
+  const stock=DB.getStock();
+  const idx=stock.findIndex(m=>m.id===id);
+  if(idx<0)return;
+  const item=readPharmaCatalogueItem(id);
+  const error=validatePharmaCatalogueItem(item,stock,id);
+  if(error){alert(error);return;}
+  const before={
+    code_produit:stock[idx].code_produit,nom:stock[idx].nom,code_ean:stock[idx].code_ean,
+    dosage:stock[idx].dosage,forme:stock[idx].forme,conditionnement:stock[idx].conditionnement
+  };
+  Object.assign(stock[idx],item,{unite:item.conditionnement});
+  DB.setStock(stock);
+  logAudit('CATALOGUE_TECHNIQUE_UPDATE',{med_id:id,medicament:item.nom,before,after:item});
+  alert('Produit mis à jour.');
+  showView('pha-catalogue');
+}
+function saveAllPharmaCatalogue(){
+  const stock=DB.getStock();
+  const items=stock.map(m=>({id:m.id,item:readPharmaCatalogueItem(m.id)}));
+  const codes=new Set(),eans=new Set();
+  for(const {item} of items){
+    if(!item.code_produit||!item.nom){alert('Chaque produit doit avoir un code interne et un nom.');return;}
+    if(!isValidEan(item.code_ean)){alert(`EAN invalide pour ${item.nom}.`);return;}
+    const codeKey=catalogueKey(item.code_produit);
+    if(codes.has(codeKey)){alert(`Code interne dupliqué : ${item.code_produit}.`);return;}
+    codes.add(codeKey);
+    if(item.code_ean&&eans.has(item.code_ean)){alert(`EAN dupliqué : ${item.code_ean}.`);return;}
+    if(item.code_ean)eans.add(item.code_ean);
+  }
+  items.forEach(({id,item})=>{
+    const med=stock.find(m=>m.id===id);
+    Object.assign(med,item,{unite:item.conditionnement});
+  });
+  DB.setStock(stock);
+  logAudit('CATALOGUE_TECHNIQUE_UPDATE_BULK',{items:stock.length});
+  alert('Catalogue technique sauvegardé.');
+  showView('pha-catalogue');
+}
 function addStockEntry(){
   const medId=document.getElementById('sk-add-med').value;
   const qty=+document.getElementById('sk-add-qty').value||0;
