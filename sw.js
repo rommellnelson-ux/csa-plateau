@@ -1,4 +1,4 @@
-const CACHE = 'csa-plateau-v7-chef-pharmacy-history';
+const CACHE = 'csa-plateau-v8-chef-pharmacy-charts';
 const ASSETS = [
   './',
   './index.html',
