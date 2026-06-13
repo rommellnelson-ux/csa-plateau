@@ -224,3 +224,30 @@ stock operationnel.
 
 Executer ensuite
 `supabase/checks/inventory_new_products_cmu_markup_report.sql`.
+
+## Reprise de l'inventaire physique pharmacie du 12 juin 2026
+
+Executer
+`supabase/migrations/202606130012_import_validated_physical_inventory.sql`
+apres la migration 011.
+
+Cette migration importe les quantites de
+`Plan_Approvisionnement_CSA_V3.xlsx` dans un inventaire en attente. Elle:
+
+- rapproche 39 lignes du catalogue courant;
+- propose 29 nouvelles fiches produit;
+- agrege les deux lignes HPV a 35 ampoules, sans inventer les 5 ampoules
+  mentionnees uniquement dans une note;
+- corrige les DCI decalees de Tonther, tramadol, Vogalene, metronidazole,
+  diclofenac, Nexamyl et paracetamol;
+- ne modifie directement ni le stock, ni les lots, ni les prix;
+- bloque l'approbation tant que les six contradictions d'unite ou de quantite
+  n'ont pas ete corrigees par le Medecin-Chef.
+
+Dans l'application, ouvrir `Pharmacie`, puis la section des inventaires en
+attente. Utiliser `Voir les lignes de controle`, corriger chaque ligne rouge,
+puis approuver l'inventaire. L'approbation cree les nouvelles fiches et les
+mouvements de stock avec une trace d'audit.
+
+Executer ensuite
+`supabase/checks/physical_inventory_import_report.sql`.
