@@ -179,3 +179,26 @@ lots et les quantites de stock.
 
 Executer ensuite
 `supabase/checks/pharma_catalogue_coherence_report.sql`.
+
+## Parametrage technique par les gestionnaires pharmacie
+
+Executer
+`supabase/migrations/202606130010_allow_pharmacy_catalogue_metadata.sql`
+apres la migration 009.
+
+Les gestionnaires pharmacie peuvent alors modifier uniquement:
+
+- le code interne;
+- le nom du produit;
+- le code EAN;
+- le dosage;
+- la forme galenique;
+- le conditionnement.
+
+Ils peuvent consulter les prix de vente CMU et hors CMU necessaires a la
+delivrance. Le prix d'acquisition, les marges, la valeur financiere du stock,
+l'eligibilite CMU, les seuils et les classifications restent reserves au
+Medecin-Chef avec MFA.
+
+Executer ensuite
+`supabase/checks/pharmacy_catalogue_editor_report.sql`.
