@@ -2868,7 +2868,9 @@ VIEW['chef-pharmacie'] = (el) => {
   const total=ventes.reduce((s,v)=>s+(+v.total||0),0);
   const cnam=ventes.reduce((s,v)=>s+(+v.cnam||0),0);
   const tm=ventes.reduce((s,v)=>s+(+v.tm||0),0);
-  const alertes=stock.filter(m=>(+m.stock||0)<=(+m.seuil||0));
+  const alertes=stock.filter(isOperationalStockAlert);
+  const toInventory=stock.filter(m=>m.catalogue_status==='A_INVENTORIER');
+  const toPrice=stock.filter(m=>(+m.px_cession||0)<=0);
   el.innerHTML=`
   <div class="g4" style="margin-bottom:12px">
     <div class="kpi" style="border-left-color:var(--orang)"><div class="kpi-ico">💊</div><div class="kpi-lbl">Délivrances</div><div class="kpi-val" style="color:var(--orang)">${ventes.length}</div></div>
@@ -2909,14 +2911,16 @@ VIEW['chef-pharmacie'] = (el) => {
   </div>
   <div class="card">
     <div class="card-title">État actuel du stock — Lecture seule</div>
+    ${(toInventory.length||toPrice.length)?`<div class="al al-info"><strong>Catalogue réel en cours d'initialisation</strong>${toInventory.length} référence(s) à inventorier et ${toPrice.length} tarif(s) à valider. Les zéros affichés sont des valeurs d'attente, pas des ruptures de stock.</div>`:''}
     ${alertes.length?`<div class="al al-err"><strong>${alertes.length} article(s) au seuil ou en dessous</strong>${alertes.map(m=>`${escHtml(m.nom)} : ${fmt(+m.stock||0)} (seuil ${fmt(+m.seuil||0)})`).join(' | ')}</div>`:''}
     <div class="tw"><table>
       <tr><th>Médicament</th><th>DCI</th><th>Catégorie</th><th>Stock</th><th>Seuil</th><th>État</th><th>Prix cession</th><th>Prix CMU</th><th>Prix non-assuré</th></tr>
       ${stock.map(m=>{
-        const low=(+m.stock||0)<=(+m.seuil||0);
+        const pending=m.catalogue_status==='A_INVENTORIER';
+        const low=isOperationalStockAlert(m);
         return `<tr><td style="font-weight:700">${escHtml(m.nom||'—')}</td><td>${escHtml(m.dci||'—')}</td><td>${escHtml(m.categorie||'—')}</td>
-          <td style="font-weight:700;color:${low?'var(--rouge)':'var(--vert)'}">${fmt(+m.stock||0)} ${escHtml(m.unite||'')}</td>
-          <td>${fmt(+m.seuil||0)}</td><td><span class="badge ${low?'b-err':'b-ok'}">${low?'ALERTE':'OK'}</span></td>
+          <td style="font-weight:700;color:${pending?'var(--orang)':low?'var(--rouge)':'var(--vert)'}">${fmt(+m.stock||0)} ${escHtml(m.unite||'')}</td>
+          <td>${fmt(+m.seuil||0)}</td><td><span class="badge ${pending?'b-warn':low?'b-err':'b-ok'}">${pending?'À INVENTORIER':low?'ALERTE':'OK'}</span></td>
           <td>${fmt(+m.px_cession||0)} F</td><td>${fmt(pxCMU(m))} F</td><td>${fmt(pxNA(m))} F</td></tr>`;
       }).join('')}
     </table></div>
