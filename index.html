@@ -3219,9 +3219,29 @@ VIEW['chef-pharmacie'] = (el) => {
     ${inventaires.filter(i=>i.statut==='EN_ATTENTE_CHEF').map(inv=>{
       const ecarts=(inv.lignes||[]).filter(l=>(+l.ecart||0)!==0);
       const nouveaux=(inv.lignes||[]).filter(l=>l.is_new);
+      const aRevoir=(inv.lignes||[]).filter(l=>l.review_required);
+      const summary=inv.import_summary||{};
       return `<div class="fs"><div class="fs-title">${escHtml(inv.reference||'Inventaire')} — ${fmtD(inv.created_at)} — ${escHtml(inv.agent_nom||'—')}</div>
+        ${inv.imported_inventory?`<div class="al al-info"><strong>Reprise d'inventaire importée</strong>
+          ${fmt(summary.inventory_lines||(inv.lignes||[]).length)} ligne(s), ${fmt(summary.existing_products||0)} produit(s) rapproché(s) et
+          ${fmt(summary.new_products||nouveaux.length)} nouvelle(s) fiche(s). Le stock reste inchangé jusqu'à l'approbation.</div>`:''}
+        ${aRevoir.length?`<div class="al al-err"><strong>${aRevoir.length} ligne(s) à corriger avant approbation</strong>
+          Les unités ou quantités de ces lignes sont contradictoires dans le fichier source.</div>`:''}
         ${nouveaux.length?`<div class="al al-warn"><strong>${nouveaux.length} nouveau(x) produit(s) à valider</strong>${nouveaux.map(l=>`${escHtml(l.code_produit)} — ${escHtml(l.medicament)} — ${fmt(l.physique)} ${escHtml(l.conditionnement||'')}`).join(' | ')}</div>`:''}
         <div style="font-size:11px;margin-bottom:8px">${ecarts.filter(l=>!l.is_new).map(l=>`<strong>${escHtml(l.medicament)}</strong> : ${l.ecart>0?'+':''}${fmt(l.ecart)} (${escHtml(l.motif||'sans motif')})`).join(' | ')||'Aucun écart sur les produits existants'}</div>
+        ${inv.imported_inventory?`<details style="margin:10px 0"><summary style="cursor:pointer;font-weight:700">Voir les ${fmt((inv.lignes||[]).length)} lignes de contrôle</summary>
+          <div class="tw" style="margin-top:8px"><table>
+            <tr><th>Ligne source</th><th>Produit corrigé</th><th>Rapprochement</th><th>Compté</th><th>Contrôle</th><th>Note source</th><th></th></tr>
+            ${(inv.lignes||[]).map((line,index)=>`<tr>
+              <td>${escHtml((line.source_rows||[line.source_row]).join(', '))}</td>
+              <td style="font-weight:700">${escHtml(line.medicament||'—')}<div style="font-size:9px;color:var(--muted)">${escHtml(line.correction_note||'')}</div></td>
+              <td><span class="badge ${line.is_new?'b-warn':'b-ok'}">${line.is_new?'NOUVELLE FICHE':'CATALOGUE'}</span></td>
+              <td style="white-space:nowrap;font-weight:700">${fmt(+line.physique||0)} ${escHtml(line.unite||line.conditionnement||'')}</td>
+              <td>${line.review_required?`<span class="badge b-err">À CORRIGER</span><div style="font-size:9px;color:var(--rouge);max-width:260px">${escHtml(line.review_reason||'Contrôle requis')}</div>`:'<span class="badge b-ok">PRÊT</span>'}</td>
+              <td style="font-size:9px;max-width:260px">${escHtml(line.source_note||'—')}</td>
+              <td>${line.review_required?`<button class="btn btn-out btn-sm no-print" onclick="resolveImportedInventoryLine('${inv.id}',${index})">Corriger</button>`:''}</td>
+            </tr>`).join('')}
+          </table></div></details>`:''}
         <div class="btn-row no-print"><button class="btn btn-success btn-sm" onclick="decidePharmaInventory('${inv.id}',true)">Approuver et ajuster</button>
           <button class="btn btn-danger btn-sm" onclick="decidePharmaInventory('${inv.id}',false)">Rejeter</button></div></div>`;
     }).join('')||'<div class="al al-ok"><strong>Aucun inventaire en attente</strong>Toutes les demandes ont reçu une décision.</div>'}
@@ -3239,10 +3259,42 @@ VIEW['chef-pharmacie'] = (el) => {
   ${renderPharmaHistory('chef-pharma-history','chef-pharmacie')}`;
 };
 
+function resolveImportedInventoryLine(id,index){
+  const inventaires=DB.get('pharma_inventaires');
+  const inv=inventaires.find(item=>item.id===id);
+  const line=inv?.lignes?.[index];
+  if(!inv||inv.statut!=='EN_ATTENTE_CHEF'||!line?.review_required)return;
+  const quantity=prompt(`Quantité physique corrigée pour ${line.medicament} :`,String(+line.physique||0));
+  if(quantity===null)return;
+  const parsed=Number(String(quantity).replace(',','.'));
+  if(!Number.isFinite(parsed)||parsed<0){alert('La quantité doit être un nombre positif ou nul.');return;}
+  const unit=prompt('Unité homogène validée (ex. Ampoule, Boîte, Flacon, Plaquette, Comprimé / unité) :',line.unite||line.conditionnement||'Unité');
+  if(unit===null||!unit.trim()){alert('L’unité validée est obligatoire.');return;}
+  const note=prompt('Note de correction du Médecin-Chef :',line.review_reason||'');
+  if(note===null||!note.trim()){alert('La justification de la correction est obligatoire.');return;}
+  line.physique=parsed;
+  line.unite=canonicalPharmaPack(unit.trim());
+  line.conditionnement=line.unite;
+  line.ecart=parsed-(+line.theorique||0);
+  line.review_required=false;
+  line.review_resolved_at=new Date().toISOString();
+  line.review_resolved_by=CURRENT_AGENT.nom;
+  line.chef_correction=note.trim();
+  if(!line.is_new)line.catalogue_patch={...(line.catalogue_patch||{}),conditionnement:line.unite,unite:line.unite};
+  persistUpdatedRecord('pharma_inventaires',inventaires,inv);
+  logAudit('PHARMACIE_INVENTAIRE_LIGNE_CORRIGEE',{reference:inv.reference,source_row:line.source_row,medicament:line.medicament,physique:parsed,unite:line.unite});
+  showView('chef-pharmacie');
+}
+
 function decidePharmaInventory(id,approve){
   const inventaires=DB.get('pharma_inventaires');
   const inv=inventaires.find(i=>i.id===id);
   if(!inv||inv.statut!=='EN_ATTENTE_CHEF') return;
+  const unresolved=(inv.lignes||[]).filter(line=>line.review_required);
+  if(approve&&unresolved.length){
+    alert(`${unresolved.length} ligne(s) doivent être corrigées avant l’approbation de cet inventaire.`);
+    return;
+  }
   const decision=prompt(approve?'Motif ou commentaire d’approbation :':'Motif obligatoire du rejet :','');
   if(decision===null||(!approve&&!decision.trim())) return;
   if(!approve){
@@ -3282,14 +3334,15 @@ function decidePharmaInventory(id,approve){
         code_produit:line.code_produit,
         code_ean:line.code_ean||'',
         nom:line.medicament,
-        dci:'',
+        dci:line.dci||'',
         dosage:line.dosage||'',
         forme:line.forme||'Non renseignée',
         conditionnement:line.conditionnement||'Unité',
         unite:line.conditionnement||'Unité',
-        type_produit:'Médicament',
-        categorie:'À classer',
-        cmu_eligible:false,
+        type_produit:line.type_produit||'Médicament',
+        categorie:line.categorie||'À classer',
+        cmu_eligible:!!line.cmu_eligible,
+        cmu_source:line.cmu_eligible?'Inventaire physique 12/06/2026 — tarif à renseigner':'',
         cmu_markup_pct:15,
         px_achat:0,px_cession:0,px_cmu:0,px_na:0,seuil:0,
         stock:+line.physique||0,
@@ -3309,7 +3362,13 @@ function decidePharmaInventory(id,approve){
       continue;
     }
     const med=stock.find(m=>m.id===line.med_id);
-    if(!med||(+line.ecart||0)===0) continue;
+    if(!med) continue;
+    if(line.catalogue_patch&&inv.imported_inventory){
+      if(line.catalogue_patch.conditionnement)med.conditionnement=canonicalPharmaPack(line.catalogue_patch.conditionnement);
+      if(line.catalogue_patch.unite)med.unite=canonicalPharmaPack(line.catalogue_patch.unite);
+    }
+    med.catalogue_status='OPERATIONNEL';
+    if((+line.ecart||0)===0) continue;
     const before=+med.stock||0;
     const delta=+line.ecart||0;
     if(delta>0){
