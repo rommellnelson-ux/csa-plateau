@@ -132,3 +132,29 @@ ecraser les saisies operationnelles ulterieures.
 Executer enfin `supabase/checks/current_pharma_catalogue_report.sql`. Le premier
 resultat doit indiquer 125 references actives, 42 produits de demonstration
 archives, un stock initial nul et 125 prix a valider.
+
+## Metadonnees et controle financier pharmacie
+
+Executer
+`supabase/migrations/202606130008_enrich_pharma_catalogue_financial.sql`
+apres la migration 007. Elle complete les 125 references avec le code produit,
+le dosage, la forme, le conditionnement, l'eligibilite CMU initiale et la
+quantite historique de reference.
+
+La quantite historique de reference correspond aux sorties documentees de
+fevrier a juin 2026. Elle aide a preparer l'inventaire mais ne remplace jamais
+le comptage physique ni le stock operationnel.
+
+Les gestionnaires pharmacie voient les donnees techniques et les quantites,
+mais aucune valorisation financiere du stock. Seul le Medecin-Chef avec MFA
+peut saisir et consulter:
+
+- le prix d'acquisition;
+- l'eligibilite CMU;
+- le tarif de vente CMU;
+- le tarif de vente hors CMU;
+- les marges unitaires et la valeur financiere du stock.
+
+Pour un patient CMU, un produit marque non eligible CMU est facture au tarif
+hors CMU. Executer ensuite
+`supabase/checks/pharma_catalogue_financial_report.sql`.

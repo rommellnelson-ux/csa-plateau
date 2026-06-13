@@ -1,4 +1,4 @@
-const CACHE = 'csa-plateau-v10-chief-inventory-status';
+const CACHE = 'csa-plateau-v11-pharmacy-financial-controls';
 const ASSETS = [
   './',
   './index.html',
