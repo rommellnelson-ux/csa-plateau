@@ -1,4 +1,4 @@
-const CACHE = 'csa-plateau-v13-pharmacy-catalogue-editor';
+const CACHE = 'csa-plateau-v14-inventory-new-products-cmu-markup';
 const ASSETS = [
   './',
   './index.html',

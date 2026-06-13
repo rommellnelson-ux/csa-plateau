@@ -343,7 +343,12 @@ const MEDS_DEMO_ARCHIVE = [
 ];
 const isDemoMedicineId=(id)=>/^M(?:00[1-9]|0[1-3][0-9]|04[0-2])$/.test(String(id||''));
 
-function pxCMU(med){ return med.cmu_eligible ? Math.round(+med.px_cmu||0) : 0; }
+function cmuMarkup(med){ return Number.isFinite(+med?.cmu_markup_pct)?+med.cmu_markup_pct:15; }
+function pxCMU(med){
+  if(!med?.cmu_eligible) return 0;
+  const base=+med.px_cession||0;
+  return Math.round(base*(1+cmuMarkup(med)/100));
+}
 function pxNA(med){ return Math.round((med.px_na ?? med.px_cession) || 0); }
 function productMargin(salePrice,purchasePrice){
   const sale=+salePrice||0,purchase=+purchasePrice||0;
@@ -2402,12 +2407,6 @@ VIEW['pha-catalogue'] = (el) => {
     m.code_produit,m.code_ean,m.nom,m.dci,m.dosage,m.forme,m.conditionnement
   ].some(value=>String(value||'').toLowerCase().includes(query)));
   el.innerHTML=`
-  <div class="al al-info">
-    <strong>Paramétrage autorisé aux gestionnaires pharmacie</strong>
-    Vous pouvez corriger uniquement le code interne, le produit, l'EAN, le dosage,
-    la forme et le conditionnement. Les données CMU, les prix, les marges et les
-    seuils restent réservés au Médecin-Chef.
-  </div>
   <div class="card">
     <div class="card-title">Référentiel technique du catalogue</div>
     <div class="fr no-print" style="margin-bottom:10px">
@@ -2565,13 +2564,19 @@ VIEW['pha-inventaire'] = (el) => {
     <div class="fr"><label>Référence</label><input id="inv-reference" value="INV-${today()}" style="max-width:180px">
       <label>Observation générale</label><input id="inv-observation" placeholder="Contexte, équipe, emplacement..." style="flex:1"></div>
     <div class="tw"><table>
-      <tr><th>Médicament</th><th>Référence historique</th><th>Théorique système</th><th>Compté</th><th>Justification si écart</th></tr>
+      <tr><th>Médicament</th><th>Sorties historiques<br><small>(non stock)</small></th><th>Théorique système</th><th>Compté</th><th>Justification si écart</th></tr>
       ${stock.map(m=>`<tr><td style="font-weight:700">${escHtml(m.nom)}</td>
         <td title="Quantités sorties sur la période historique">${fmt(+m.quantite_theorique||+m.historique_quantite||0)} ${escHtml(canonicalPharmaPack(m.conditionnement||m.unite))}</td>
         <td>${fmt(+m.stock||0)} ${escHtml(canonicalPharmaPack(m.conditionnement||m.unite))}</td>
         <td><input type="number" class="inv-physique" data-id="${m.id}" data-theorique="${+m.stock||0}" min="0" value="${+m.stock||0}" style="width:85px"></td>
         <td><input type="text" class="inv-motif" data-id="${m.id}" placeholder="Perte, casse, erreur de saisie..." style="width:100%"></td></tr>`).join('')}
     </table></div>
+    <div class="fs no-print" style="margin-top:12px">
+      <div class="fs-title">Produits trouvés pendant l'inventaire mais absents du catalogue</div>
+      <div id="inv-new-products"></div>
+      <button class="btn btn-out btn-sm" type="button" onclick="addInventoryProductRow()">+ Ajouter un nouveau produit</button>
+      <div style="font-size:10px;color:var(--muted);margin-top:6px">Ces produits et leurs quantités ne seront créés qu'après validation du Médecin-Chef.</div>
+    </div>
     <div class="btn-row"><button class="btn btn-primary" onclick="submitPharmaInventory()">Transmettre au Médecin-Chef</button></div>
   </div>
   <div class="card">
@@ -2588,6 +2593,25 @@ VIEW['pha-inventaire'] = (el) => {
     </table></div>
   </div>`;
 };
+function addInventoryProductRow(){
+  const host=document.getElementById('inv-new-products');
+  if(!host)return;
+  const rowId='NEW-'+Date.now()+'-'+Math.random().toString(36).slice(2,6);
+  const row=document.createElement('div');
+  row.className='inv-new-row fr';
+  row.dataset.id=rowId;
+  row.style.cssText='padding:7px;border:1px solid var(--border);border-radius:7px;margin-bottom:7px;align-items:flex-end';
+  row.innerHTML=`
+    <div><label>Code interne *</label><input class="inv-new-code" placeholder="PRD-NOUVEAU" style="width:115px"></div>
+    <div style="flex:1"><label>Produit *</label><input class="inv-new-name" placeholder="Nom du produit" style="width:100%"></div>
+    <div><label>EAN</label><input class="inv-new-ean" inputmode="numeric" maxlength="14" style="width:125px" oninput="this.value=normalizeEan(this.value)"></div>
+    <div><label>Dosage</label><input class="inv-new-dosage" placeholder="500 mg" style="width:90px"></div>
+    <div><label>Forme</label><select class="inv-new-form" style="width:145px">${PHARMA_FORMS.map(v=>`<option>${escHtml(v)}</option>`).join('')}</select></div>
+    <div><label>Conditionnement</label><select class="inv-new-pack" style="width:135px">${PHARMA_PACKS.map(v=>`<option>${escHtml(v)}</option>`).join('')}</select></div>
+    <div><label>Quantité *</label><input type="number" class="inv-new-qty" min="0" value="0" style="width:75px"></div>
+    <button class="btn btn-danger btn-sm" type="button" onclick="this.closest('.inv-new-row').remove()">Retirer</button>`;
+  host.appendChild(row);
+}
 function submitPharmaInventory(){
   const stock=DB.getStock();
   const lignes=stock.map(m=>{
@@ -2596,12 +2620,41 @@ function submitPharmaInventory(){
     const physique=+input?.value||0;
     return {med_id:m.id,medicament:m.nom,unite:canonicalPharmaPack(m.conditionnement||m.unite),theorique:+m.stock||0,physique,ecart:physique-(+m.stock||0),motif};
   });
-  const unjustified=lignes.find(l=>l.ecart!==0&&!l.motif);
+  const newLines=[...document.querySelectorAll('.inv-new-row')].map(row=>({
+    med_id:row.dataset.id,
+    is_new:true,
+    code_produit:row.querySelector('.inv-new-code').value.trim(),
+    medicament:row.querySelector('.inv-new-name').value.trim(),
+    code_ean:normalizeEan(row.querySelector('.inv-new-ean').value),
+    dosage:row.querySelector('.inv-new-dosage').value.trim(),
+    forme:canonicalPharmaForm(row.querySelector('.inv-new-form').value),
+    conditionnement:canonicalPharmaPack(row.querySelector('.inv-new-pack').value),
+    unite:canonicalPharmaPack(row.querySelector('.inv-new-pack').value),
+    theorique:0,
+    physique:+row.querySelector('.inv-new-qty').value||0,
+    ecart:+row.querySelector('.inv-new-qty').value||0,
+    motif:'Nouveau produit constaté pendant l’inventaire'
+  }));
+  const stockCodes=new Set(stock.map(m=>catalogueKey(m.code_produit)));
+  const stockEans=new Set(stock.map(m=>normalizeEan(m.code_ean)).filter(Boolean));
+  const newCodes=new Set(),newEans=new Set();
+  for(const line of newLines){
+    if(!line.code_produit||!line.medicament){alert('Code interne et nom obligatoires pour chaque nouveau produit.');return;}
+    if(line.physique<=0){alert(`La quantité de ${line.medicament} doit être supérieure à zéro.`);return;}
+    if(!isValidEan(line.code_ean)){alert(`EAN invalide pour ${line.medicament}.`);return;}
+    const codeKey=catalogueKey(line.code_produit);
+    if(stockCodes.has(codeKey)||newCodes.has(codeKey)){alert(`Code interne déjà utilisé : ${line.code_produit}.`);return;}
+    newCodes.add(codeKey);
+    if(line.code_ean&&(stockEans.has(line.code_ean)||newEans.has(line.code_ean))){alert(`EAN déjà utilisé : ${line.code_ean}.`);return;}
+    if(line.code_ean)newEans.add(line.code_ean);
+  }
+  lignes.push(...newLines);
+  const unjustified=lignes.find(l=>!l.is_new&&l.ecart!==0&&!l.motif);
   if(unjustified){alert(`Justification obligatoire pour l’écart de ${unjustified.medicament}.`);return;}
   const reference=document.getElementById('inv-reference').value.trim()||('INV-'+today());
   DB.push('pharma_inventaires',{reference,observation:document.getElementById('inv-observation').value.trim(),
     lignes,statut:'EN_ATTENTE_CHEF',date:today()});
-  logAudit('PHARMACIE_INVENTAIRE_SOUMIS',{reference,ecarts:lignes.filter(l=>l.ecart!==0).length});
+  logAudit('PHARMACIE_INVENTAIRE_SOUMIS',{reference,ecarts:lignes.filter(l=>l.ecart!==0).length,nouveaux_produits:newLines.length});
   alert('Inventaire transmis au Médecin-Chef. Aucun stock n’a encore été modifié.');
   showView('pha-inventaire');
 }
@@ -3165,8 +3218,10 @@ VIEW['chef-pharmacie'] = (el) => {
     <div class="card-title">Inventaires en attente de décision</div>
     ${inventaires.filter(i=>i.statut==='EN_ATTENTE_CHEF').map(inv=>{
       const ecarts=(inv.lignes||[]).filter(l=>(+l.ecart||0)!==0);
+      const nouveaux=(inv.lignes||[]).filter(l=>l.is_new);
       return `<div class="fs"><div class="fs-title">${escHtml(inv.reference||'Inventaire')} — ${fmtD(inv.created_at)} — ${escHtml(inv.agent_nom||'—')}</div>
-        <div style="font-size:11px;margin-bottom:8px">${ecarts.map(l=>`<strong>${escHtml(l.medicament)}</strong> : ${l.ecart>0?'+':''}${fmt(l.ecart)} (${escHtml(l.motif||'sans motif')})`).join(' | ')||'Aucun écart'}</div>
+        ${nouveaux.length?`<div class="al al-warn"><strong>${nouveaux.length} nouveau(x) produit(s) à valider</strong>${nouveaux.map(l=>`${escHtml(l.code_produit)} — ${escHtml(l.medicament)} — ${fmt(l.physique)} ${escHtml(l.conditionnement||'')}`).join(' | ')}</div>`:''}
+        <div style="font-size:11px;margin-bottom:8px">${ecarts.filter(l=>!l.is_new).map(l=>`<strong>${escHtml(l.medicament)}</strong> : ${l.ecart>0?'+':''}${fmt(l.ecart)} (${escHtml(l.motif||'sans motif')})`).join(' | ')||'Aucun écart sur les produits existants'}</div>
         <div class="btn-row no-print"><button class="btn btn-success btn-sm" onclick="decidePharmaInventory('${inv.id}',true)">Approuver et ajuster</button>
           <button class="btn btn-danger btn-sm" onclick="decidePharmaInventory('${inv.id}',false)">Rejeter</button></div></div>`;
     }).join('')||'<div class="al al-ok"><strong>Aucun inventaire en attente</strong>Toutes les demandes ont reçu une décision.</div>'}
@@ -3202,13 +3257,14 @@ function decidePharmaInventory(id,approve){
   }
   const stock=DB.getStock();
   const stale=(inv.lignes||[]).find(line=>{
+    if(line.is_new)return false;
     const med=stock.find(m=>m.id===line.med_id);
     return med&&(+med.stock||0)!==(+line.theorique||0);
   });
   if(stale){alert(`Le stock de ${stale.medicament} a changé depuis l’inventaire. Rejetez cette demande et faites saisir un nouvel inventaire.`);return;}
   const lots=DB.getLots();
   const impossible=(inv.lignes||[]).find(line=>{
-    if((+line.ecart||0)>=0) return false;
+    if(line.is_new||(+line.ecart||0)>=0) return false;
     const med=stock.find(m=>m.id===line.med_id);
     if(!med) return true;
     ensureLotCoverage(med,lots);
@@ -3216,6 +3272,42 @@ function decidePharmaInventory(id,approve){
   });
   if(impossible){alert(`Lots insuffisants pour ajuster ${impossible.medicament}.`);return;}
   for(const line of (inv.lignes||[])){
+    if(line.is_new){
+      const duplicate=stock.find(m=>catalogueKey(m.code_produit)===catalogueKey(line.code_produit)
+        ||(line.code_ean&&normalizeEan(m.code_ean)===normalizeEan(line.code_ean)));
+      if(duplicate){alert(`Le nouveau produit ${line.medicament} existe désormais dans le catalogue. Rejetez l’inventaire et recommencez.`);return;}
+      const med={
+        id:'CAT-'+line.med_id,
+        source_product_id:line.code_produit,
+        code_produit:line.code_produit,
+        code_ean:line.code_ean||'',
+        nom:line.medicament,
+        dci:'',
+        dosage:line.dosage||'',
+        forme:line.forme||'Non renseignée',
+        conditionnement:line.conditionnement||'Unité',
+        unite:line.conditionnement||'Unité',
+        type_produit:'Médicament',
+        categorie:'À classer',
+        cmu_eligible:false,
+        cmu_markup_pct:15,
+        px_achat:0,px_cession:0,px_cmu:0,px_na:0,seuil:0,
+        stock:+line.physique||0,
+        active:true,
+        catalogue_status:'OPERATIONNEL',
+        price_status:'A_VALIDER',
+        validation_source:'INVENTAIRE_APPROUVE',
+        created_at:new Date().toISOString()
+      };
+      stock.push(med);
+      const lotId=`LOT-INV-${inv.id}-${med.id}`;
+      lots.unshift({id:lotId,med_id:med.id,medicament:med.nom,numero_lot:`INV-${inv.reference}`,
+        date_peremption:'',fournisseur:'Nouveau produit validé par inventaire',quantite:med.stock,quantite_initiale:med.stock,created_at:new Date().toISOString()});
+      recordStockMovement({type:'CREATION_PRODUIT_INVENTAIRE',med_id:med.id,medicament:med.nom,quantite:med.stock,
+        stock_avant:0,stock_apres:med.stock,lot_id:lotId,numero_lot:`INV-${inv.reference}`,
+        motif:line.motif,reference:inv.reference});
+      continue;
+    }
     const med=stock.find(m=>m.id===line.med_id);
     if(!med||(+line.ecart||0)===0) continue;
     const before=+med.stock||0;
@@ -3255,7 +3347,7 @@ function decidePharmaInventory(id,approve){
   inv.decide_par=CURRENT_AGENT.nom;
   inv.decide_at=new Date().toISOString();
   persistUpdatedRecord('pharma_inventaires',inventaires,inv);
-  logAudit('PHARMACIE_INVENTAIRE_APPROUVE',{reference:inv.reference,ecarts:(inv.lignes||[]).filter(l=>l.ecart!==0).length});
+  logAudit('PHARMACIE_INVENTAIRE_APPROUVE',{reference:inv.reference,ecarts:(inv.lignes||[]).filter(l=>l.ecart!==0&&!l.is_new).length,nouveaux_produits:(inv.lignes||[]).filter(l=>l.is_new).length});
   showView('chef-pharmacie');
 }
 
@@ -3526,11 +3618,11 @@ VIEW['chef-prix'] = (el) => {
   const stock=DB.getStock();
   el.innerHTML=`
   <div class="al al-info"><strong>Accès exclusif Médecin-Chef</strong>Vous pouvez compléter l'EAN, le dosage, la forme, le conditionnement, l'éligibilité CMU et les prix. Toutes les modifications sont tracées.</div>
-  <div class="al al-warn"><strong>Contrôle requis</strong>Le tarif CMU doit provenir de la nomenclature officielle. Il n'est plus calculé automatiquement à partir d'un pourcentage.</div>
+  <div class="al al-warn"><strong>Calcul du tarif CMU</strong>Le tarif CMU correspond au prix de cession majoré de 15 % par défaut. Le Médecin-Chef peut modifier cette majoration produit par produit.</div>
   <div class="card">
     <div class="card-title">Paramétrage financier du catalogue</div>
     <div class="tw"><table>
-      <tr><th>Code interne</th><th>Produit</th><th>EAN</th><th>Dosage</th><th>Forme</th><th>Conditionnement</th><th>CMU</th><th>Prix acquisition</th><th>Vente CMU</th><th>Marge CMU</th><th>Vente hors CMU</th><th>Marge hors CMU</th><th>Seuil</th><th>Action</th></tr>
+      <tr><th>Code interne</th><th>Produit</th><th>EAN</th><th>Dosage</th><th>Forme</th><th>Conditionnement</th><th>CMU</th><th>Prix acquisition</th><th>Prix cession</th><th>Majoration CMU</th><th>Vente CMU calculée</th><th>Marge bénéficiaire CMU</th><th>Vente hors CMU</th><th>Marge hors CMU</th><th>Seuil</th><th>Action</th></tr>
       ${stock.map((m,i)=>`<tr>
         <td style="font-size:10px">${escHtml(m.code_produit||m.source_product_id||'—')}<div style="font-size:9px;color:var(--muted)">ATC ${escHtml(m.code_atc||'—')}</div></td>
         <td style="font-size:11px;font-weight:700;min-width:180px">${escHtml(m.nom||'—')}<div style="font-size:9px;color:var(--muted)">${escHtml(m.dci||'')}</div></td>
@@ -3540,7 +3632,9 @@ VIEW['chef-prix'] = (el) => {
         <td><select id="pack-${m.id}" style="width:140px">${[canonicalPharmaPack(m.conditionnement||m.unite),...PHARMA_PACKS].filter((v,i,a)=>a.indexOf(v)===i).map(v=>`<option ${canonicalPharmaPack(m.conditionnement||m.unite)===v?'selected':''}>${escHtml(v)}</option>`).join('')}</select></td>
         <td><label style="display:flex;align-items:center;gap:4px"><input type="checkbox" id="cmu-${m.id}" ${m.cmu_eligible?'checked':''} onchange="toggleCmuPrice('${m.id}')"> Éligible</label></td>
         <td><input type="number" id="px-a-${m.id}" value="${+m.px_achat||0}" min="0" style="width:85px" oninput="updatePriceMargins('${m.id}')"></td>
-        <td><input type="number" id="px-cmu-${m.id}" value="${pxCMU(m)}" min="0" style="width:85px" ${m.cmu_eligible?'':'disabled'} oninput="updatePriceMargins('${m.id}')"></td>
+        <td><input type="number" id="px-cession-${m.id}" value="${+m.px_cession||0}" min="0" style="width:85px" oninput="updatePriceMargins('${m.id}')"></td>
+        <td><input type="number" id="cmu-markup-${m.id}" value="${cmuMarkup(m)}" min="0" step="0.1" style="width:70px" ${m.cmu_eligible?'':'disabled'} oninput="updatePriceMargins('${m.id}')"> %</td>
+        <td><input type="number" id="px-cmu-${m.id}" value="${pxCMU(m)}" readonly style="width:85px;background:#f3f4f6"></td>
         <td id="margin-cmu-${m.id}" style="font-size:10px"></td>
         <td><input type="number" id="px-na-${m.id}" value="${pxNA(m)}" min="0" style="width:85px" oninput="updatePriceMargins('${m.id}')"></td>
         <td id="margin-na-${m.id}" style="font-size:10px"></td>
@@ -3560,15 +3654,19 @@ VIEW['chef-prix'] = (el) => {
 };
 function toggleCmuPrice(id){
   const eligible=document.getElementById('cmu-'+id)?.checked===true;
-  const input=document.getElementById('px-cmu-'+id);
-  if(input){input.disabled=!eligible;if(!eligible)input.value=0;}
+  const markup=document.getElementById('cmu-markup-'+id);
+  if(markup)markup.disabled=!eligible;
   updatePriceMargins(id);
 }
 function updatePriceMargins(id){
   const purchase=+document.getElementById('px-a-'+id)?.value||0;
   const cmuEligible=document.getElementById('cmu-'+id)?.checked===true;
-  const cmu=cmuEligible?(+document.getElementById('px-cmu-'+id)?.value||0):0;
+  const cession=+document.getElementById('px-cession-'+id)?.value||0;
+  const markup=+document.getElementById('cmu-markup-'+id)?.value||0;
+  const cmu=cmuEligible?Math.round(cession*(1+markup/100)):0;
   const nonCmu=+document.getElementById('px-na-'+id)?.value||0;
+  const cmuInput=document.getElementById('px-cmu-'+id);
+  if(cmuInput)cmuInput.value=cmu;
   const cmuMargin=productMargin(cmu,purchase);
   const nonCmuMargin=productMargin(nonCmu,purchase);
   const cmuEl=document.getElementById('margin-cmu-'+id);
@@ -3589,21 +3687,22 @@ function savePrix(id){
     const ean=normalizeEan(document.getElementById('ean-'+id).value);
     if(!isValidEan(ean)){alert('Code EAN invalide. Vérifiez le nombre de chiffres et la clé de contrôle.');return;}
     if(ean&&stock.some(m=>m.id!==id&&normalizeEan(m.code_ean)===ean)){alert('Ce code EAN est déjà affecté à un autre produit.');return;}
-    const before={code_ean:stock[idx].code_ean,dosage:stock[idx].dosage,forme:stock[idx].forme,conditionnement:stock[idx].conditionnement,px_achat:stock[idx].px_achat,cmu_eligible:stock[idx].cmu_eligible,px_cmu:pxCMU(stock[idx]),px_na:pxNA(stock[idx]),seuil:stock[idx].seuil};
+    const before={code_ean:stock[idx].code_ean,dosage:stock[idx].dosage,forme:stock[idx].forme,conditionnement:stock[idx].conditionnement,px_achat:stock[idx].px_achat,px_cession:stock[idx].px_cession,cmu_eligible:stock[idx].cmu_eligible,cmu_markup_pct:cmuMarkup(stock[idx]),px_cmu:pxCMU(stock[idx]),px_na:pxNA(stock[idx]),seuil:stock[idx].seuil};
     stock[idx].code_ean=ean;
     stock[idx].dosage=document.getElementById('dosage-'+id).value.trim();
     stock[idx].forme=canonicalPharmaForm(document.getElementById('forme-'+id).value);
     stock[idx].conditionnement=canonicalPharmaPack(document.getElementById('pack-'+id).value);
     stock[idx].unite=stock[idx].conditionnement;
     stock[idx].px_achat=+document.getElementById('px-a-'+id).value||0;
+    stock[idx].px_cession=+document.getElementById('px-cession-'+id).value||0;
     stock[idx].cmu_eligible=document.getElementById('cmu-'+id).checked===true;
-    stock[idx].px_cmu=stock[idx].cmu_eligible?(+document.getElementById('px-cmu-'+id).value||0):0;
+    stock[idx].cmu_markup_pct=+document.getElementById('cmu-markup-'+id).value||0;
+    stock[idx].px_cmu=stock[idx].cmu_eligible?Math.round(stock[idx].px_cession*(1+stock[idx].cmu_markup_pct/100)):0;
     stock[idx].px_na=+document.getElementById('px-na-'+id).value||0;
-    stock[idx].px_cession=stock[idx].px_na;
     stock[idx].seuil=+document.getElementById('seuil-'+id).value||0;
     stock[idx].price_status=stock[idx].px_na>0&&(!stock[idx].cmu_eligible||stock[idx].px_cmu>0)?'VALIDE':'A_VALIDER';
     DB.setStock(stock);
-    logAudit('CATALOGUE_PRIX_UPDATE',{medicament:stock[idx].nom,med_id:id,before,after:{code_ean:stock[idx].code_ean,dosage:stock[idx].dosage,forme:stock[idx].forme,conditionnement:stock[idx].conditionnement,px_achat:stock[idx].px_achat,cmu_eligible:stock[idx].cmu_eligible,px_cmu:stock[idx].px_cmu,px_na:stock[idx].px_na,seuil:stock[idx].seuil}});
+    logAudit('CATALOGUE_PRIX_UPDATE',{medicament:stock[idx].nom,med_id:id,before,after:{code_ean:stock[idx].code_ean,dosage:stock[idx].dosage,forme:stock[idx].forme,conditionnement:stock[idx].conditionnement,px_achat:stock[idx].px_achat,px_cession:stock[idx].px_cession,cmu_eligible:stock[idx].cmu_eligible,cmu_markup_pct:stock[idx].cmu_markup_pct,px_cmu:stock[idx].px_cmu,px_na:stock[idx].px_na,seuil:stock[idx].seuil}});
     updatePriceMargins(id);
   }
 }
@@ -3622,8 +3721,9 @@ function saveAllPrix(){
     const forme=document.getElementById('forme-'+m.id);
     const pack=document.getElementById('pack-'+m.id);
     const acquisition=document.getElementById('px-a-'+m.id);
+    const cession=document.getElementById('px-cession-'+m.id);
     const cmuEligible=document.getElementById('cmu-'+m.id);
-    const cmu=document.getElementById('px-cmu-'+m.id);
+    const markup=document.getElementById('cmu-markup-'+m.id);
     const pxna=document.getElementById('px-na-'+m.id);
     const seuil=document.getElementById('seuil-'+m.id);
     if(ean) m.code_ean=normalizeEan(ean.value);
@@ -3631,10 +3731,11 @@ function saveAllPrix(){
     if(forme) m.forme=canonicalPharmaForm(forme.value);
     if(pack){m.conditionnement=canonicalPharmaPack(pack.value);m.unite=m.conditionnement;}
     if(acquisition) m.px_achat=+acquisition.value||0;
+    if(cession) m.px_cession=+cession.value||0;
     if(cmuEligible) m.cmu_eligible=cmuEligible.checked===true;
-    if(cmu) m.px_cmu=m.cmu_eligible?(+cmu.value||0):0;
+    if(markup) m.cmu_markup_pct=+markup.value||0;
+    m.px_cmu=m.cmu_eligible?Math.round((+m.px_cession||0)*(1+cmuMarkup(m)/100)):0;
     if(pxna) m.px_na=+pxna.value||0;
-    m.px_cession=m.px_na;
     if(seuil) m.seuil=+seuil.value||0;
     m.price_status=m.px_na>0&&(!m.cmu_eligible||m.px_cmu>0)?'VALIDE':'A_VALIDER';
   });
