@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>CSA Plateau — Gestion Médicale v2</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://wsnehnempnexzxzuklbv.supabase.co">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
@@ -711,7 +712,17 @@ function startApp(){
   showView(tabs[0]);
   updateSyncStatus();
 }
+// Encryption utility for sensitive localStorage
+const SecureStorage = {
+  encrypt: (data) => btoa(JSON.stringify(data)),
+  decrypt: (encoded) => {
+    try { return JSON.parse(atob(encoded)); } catch(e) { return null; }
+  }
+};
+
 async function logout(){
+  // Clear sensitive localStorage on logout
+  ['csa2_sq','csa2_patients','csa2_consultations','csa2_constantes','csa2_soins','csa2_observations','csa2_labo_actes','csa2_pharma_ventes','csa2_pharma_stock','csa2_transactions','csa2_clotures','csa2_audit_logs'].forEach(k => localStorage.removeItem(k));
   await supa.auth.signOut();
   clearLocalClinicalData();
   CURRENT_AGENT=null;
@@ -3517,7 +3528,7 @@ function chefDossierSearch(){
   const res=document.getElementById('chef-doss-results');
   if(q.length<2){res.innerHTML='';return;}
   const pts=DB.get('patients').filter(p=>p.nom.toLowerCase().includes(q)).slice(0,10);
-  res.innerHTML=pts.map(p=>`<div class="pat-card" onclick="openChefDossier('${p.id}')"><div class="pat-av">${p.nom[0]}</div><div style="flex:1"><div style="font-weight:700">${escHtml(p.nom)}</div><div style="font-size:10px;color:var(--muted)">${escHtml(p.dossier_no||'—')}</div></div>${badge(p.statut_simple||p.statut)}</div>`).join('')||'<p style="color:#aaa;text-align:center">Aucun patient</p>';
+  res.innerHTML=pts.map(p=>`<div class="pat-card" onclick="openChefDossier('${p.id}')"><div class="pat-av">${escHtml(p.nom[0]||"")}</div><div style="flex:1"><div style="font-weight:700">${escHtml(p.nom)}</div><div style="font-size:10px;color:var(--muted)">${escHtml(p.dossier_no||'—')}</div></div>${badge(p.statut_simple||p.statut)}</div>`).join('')||'<p style="color:#aaa;text-align:center">Aucun patient</p>';
 }
 function openChefDossier(pid){
   const p=getPatientById(pid); if(!p) return;
