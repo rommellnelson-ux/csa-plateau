@@ -758,6 +758,52 @@ const CSPTest = {
 };
 
 
+
+// ════════════════════════════════════════════════════════
+// PRODUCTION MONITORING - Immediate Recommendations
+// ════════════════════════════════════════════════════════
+
+// 1. CSP Violation Monitoring - Log all violations to audit_logs
+document.addEventListener('securitypolicyviolation', (e) => {
+  try {
+    logAudit('CSP_VIOLATION', {
+      violatedDirective: e.violatedDirective,
+      blockedURI: e.blockedURI,
+      sourceFile: e.sourceFile,
+      lineNumber: e.lineNumber,
+      columnNumber: e.columnNumber,
+      timestamp: new Date().toISOString()
+    });
+    console.warn('[CSP VIOLATION LOGGED TO AUDIT]', {
+      directive: e.violatedDirective,
+      blockedURI: e.blockedURI
+    });
+  } catch(err) {
+    console.error('[CSP MONITORING ERROR]', err);
+  }
+}, true);
+
+// 2. Logout Cleanup Verification
+async function verifyLogoutCleanup() {
+  const sensitiveKeys = ['csa2_sq','csa2_patients','csa2_consultations','csa2_constantes','csa2_soins','csa2_observations','csa2_labo_actes','csa2_pharma_ventes','csa2_pharma_stock','csa2_transactions','csa2_clotures','csa2_audit_logs'];
+  const beforeLogout = sensitiveKeys.filter(k => localStorage.getItem(k)).length;
+  console.log('[LOGOUT VERIFICATION] Starting... Keys before logout:', beforeLogout);
+  await logout();
+  const afterLogout = sensitiveKeys.filter(k => localStorage.getItem(k)).length;
+  const passed = afterLogout === 0;
+  console.log('[LOGOUT VERIFICATION] COMPLETE', {status: passed ? 'PASS' : 'FAIL', keysRemoved: beforeLogout, keysRemaining: afterLogout});
+  return passed;
+}
+
+// 3. Console Error Tracking
+const consoleErrors = [];
+window.addEventListener('error', (e) => {
+  consoleErrors.push({message: e.message, source: e.filename, lineno: e.lineno, timestamp: new Date().toISOString()});
+  if(consoleErrors.length > 100) consoleErrors.shift();
+  console.warn('[ERROR TRACKED]', e.message);
+});
+function getConsoleErrors() { return consoleErrors; }
+
 async function logout(){
   // Clear sensitive localStorage on logout
   ['csa2_sq','csa2_patients','csa2_consultations','csa2_constantes','csa2_soins','csa2_observations','csa2_labo_actes','csa2_pharma_ventes','csa2_pharma_stock','csa2_transactions','csa2_clotures','csa2_audit_logs'].forEach(k => localStorage.removeItem(k));
