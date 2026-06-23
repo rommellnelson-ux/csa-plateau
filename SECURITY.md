@@ -251,3 +251,109 @@ mouvements de stock avec une trace d'audit.
 
 Executer ensuite
 `supabase/checks/physical_inventory_import_report.sql`.
+
+
+## Chiffrement de localStorage (v2.1 - juin 2026)
+
+Depuis la version 2.1, les donnees medicales sensibles sont chiffrees 
+automatiquement avant stockage dans localStorage via la classe SecureStorage.
+
+### Donnees chiffrees automatiquement
+
+- `csa2_sq` — Sync queue
+- `csa2_patients` — Registre patients  
+- `csa2_consultations` — Consultations archivees
+- `csa2_constantes` — Constantes vitales
+- `csa2_observations` — Observations cliniques
+- `csa2_labo_actes` — Actes laboratoire
+- `csa2_pharma_ventes` — Historique ventes pharmacie
+- `csa2_pharma_stock` — Stock et mouvements
+- `csa2_transactions` — Transactions financieres
+- `csa2_audit_logs` — Logs d'audit
+- `csa2_clotures` — Clotures comptables
+
+### Migration automatique
+
+La migration est transparente et automatique :
+
+1. **DB.set()** applique SecureStorage.encrypt() pour cles sensibles
+2. **DB.get()** applique SecureStorage.decrypt() automatiquement
+3. **Backward compatibility** : anciennes donnees non chiffrees sont acceptees
+4. **Aucun changement de code applicatif** requis
+5. **Nettoyage logout** : toutes les cles sensibles sont supprimees a la deconnexion
+
+### Verification des tests de securite
+
+Ouvrir la console navigateur et executer :
+
+```javascript
+CSPTest.validatePolicy()   // Verifie CSP meta tag (PASS/FAIL)
+CSPTest.testEncryption()   // Verifie chiffrement (PASS/FAIL)
+CSPTest.runAll()           // Lance tous les tests
+```
+
+Les resultats s'affichent dans la console avec le prefix `[CSP TEST]` ou 
+`[SECURITY TEST]`.
+
+### Content-Security-Policy (CSP) appliquee
+
+Une politique CSP stricte bloque les injections de script :
+
+```
+default-src 'self'
+script-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com
+style-src 'self' 'unsafe-inline'
+img-src 'self' data:
+connect-src 'self' https://wsnehnempnexzxzuklbv.supabase.co
+```
+
+Tout acces non autorise declenche une violation loggee dans la console :
+```
+[CSP Violation] blockedURI=... violatedDirective=... 
+```
+
+### Architecture du chiffrement
+
+Le chiffrement utilise Base64 (non du vrai chiffrement cryptographique) :
+
+```javascript
+// Encoder
+const encrypted = btoa(JSON.stringify(data));
+
+// Decoder  
+const decrypted = JSON.parse(atob(encrypted));
+```
+
+**Limitations** :
+- Base64 n'est pas un chiffrement cryptographique (peut etre decode facilement)
+- Protege principalement contre l'inspection DevTools et XSS simple
+- Les donnees restent en memoire JavaScript en clair (limitation fondamentale)
+- Ne protege pas contre les acces directs a la base de donnees ou au reseau
+
+### Evolution future vers Web Crypto API
+
+Pour une vraie encryption, une transition vers Web Crypto API est planifiee :
+
+```javascript
+const password = await supa.auth.getSession().user.id; 
+const key = await crypto.subtle.deriveKey(
+  { name: 'PBKDF2', salt: new Uint8Array(16), iterations: 100000, hash: 'SHA-256' },
+  await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey']),
+  { name: 'AES-GCM', length: 256 },
+  false,
+  ['encrypt', 'decrypt']
+);
+const encrypted = await crypto.subtle.encrypt('AES-GCM', key, data);
+```
+
+Cette evolution requerrait une modification de DB.get/set et une migration 
+des donnees existantes. Elle sera planifiee dans une future release.
+
+### Recommandations de deployment
+
+1. **Tester en staging** avant production (voir CSPTest ci-dessus)
+2. **Monitorer les violations CSP** via logs d'audit
+3. **Documenter** toute extension de CSP pour les CDN additionnels
+4. **Audit regulier** des donnees chiffrees (ex: tailles en localStorage)
+5. **Backup Supabase** avant deployment en production
+

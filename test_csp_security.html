@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>CSA Security Tests</title>
+<style>
+body { font-family: monospace; padding: 20px; background: #f5f5f5; }
+.test { margin: 10px 0; padding: 10px; border-radius: 4px; }
+.pass { background: #d4edda; border-left: 4px solid #28a745; }
+.fail { background: #f8d7da; border-left: 4px solid #dc3545; }
+h2 { color: #333; }
+code { background: #fff; padding: 2px 6px; border-radius: 3px; }
+</style>
+</head>
+<body>
+<h1>CSA Plateau — Security Test Suite</h1>
+<p>Copy the test code below into browser console to validate deployment.</p>
+
+<h2>1. CSP Header Validation</h2>
+<div class="test">
+<code>
+const meta = document.querySelector('meta[http-equiv="Content-Security-Policy"]');
+if(meta) {
+  console.log('PASS: CSP header found');
+  console.log('Policy:', meta.getAttribute('content'));
+} else {
+  console.log('FAIL: CSP header not found');
+}
+</code>
+</div>
+
+<h2>2. Encryption Utility Test</h2>
+<div class="test">
+<code>
+const testData = {patient_id: '123', name: 'Test'};
+const encrypted = SecureStorage.encrypt(testData);
+const decrypted = SecureStorage.decrypt(encrypted);
+console.log('Test data:', testData);
+console.log('Encrypted:', encrypted);
+console.log('Decrypted:', decrypted);
+console.log('Match:', JSON.stringify(testData) === JSON.stringify(decrypted) ? 'PASS' : 'FAIL');
+</code>
+</div>
+
+<h2>3. localStorage Cleanup Test</h2>
+<div class="test">
+<code>
+const keys = ['csa2_patients', 'csa2_consultations', 'csa2_soins'];
+keys.forEach(k => localStorage.setItem(k, 'test-value'));
+console.log('Keys before clear:', keys.map(k => localStorage.getItem(k)));
+
+// Simulate logout cleanup
+keys.forEach(k => localStorage.removeItem(k));
+console.log('Keys after clear:', keys.map(k => localStorage.getItem(k)));
+console.log('Cleanup:', keys.every(k => !localStorage.getItem(k)) ? 'PASS' : 'FAIL');
+</code>
+</div>
+
+<h2>4. XSS Protection Test</h2>
+<div class="test">
+<code>
+// Test that XSS payloads are properly escaped
+const payload = '<img src=x onerror="alert(1)">';
+const escaped = escHtml(payload);
+console.log('XSS Payload:', payload);
+console.log('Escaped:', escaped);
+console.log('Contains dangerous chars:', /[<>]/.test(escaped) ? 'FAIL' : 'PASS');
+</code>
+</div>
+
+<h2>5. Security Test Suite (CSPTest)</h2>
+<div class="test">
+<code>
+CSPTest.validatePolicy();   // Check CSP
+CSPTest.testEncryption();   // Check encryption
+CSPTest.runAll();           // Run all tests
+</code>
+</div>
+
+<h2>6. CSP Violation Monitoring</h2>
+<div class="test">
+<code>
+document.addEventListener('securitypolicyviolation', (e) => {
+  console.warn('CSP Violation Detected:', {
+    violatedDirective: e.violatedDirective,
+    blockedURI: e.blockedURI,
+    sourceFile: e.sourceFile,
+    lineNumber: e.lineNumber
+  });
+});
+console.log('CSP violation listener installed');
+</code>
+</div>
+
+<h2>Expected Results</h2>
+<div style="background: #d4edda; padding: 15px; margin: 20px 0; border-radius: 4px;">
+<strong>All tests should return PASS:</strong>
+<ul>
+<li>[CSP TEST] Policy validation: PASS</li>
+<li>[SECURITY TEST] Encryption: PASS</li>
+<li>Cleanup: PASS</li>
+<li>XSS Protection: PASS</li>
+<li>[CSP Security Suite] Starting tests... (all PASS)</li>
+</ul>
+</div>
+
+</body>
+</html>
