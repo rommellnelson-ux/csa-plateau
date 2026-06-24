@@ -622,7 +622,8 @@ async function loadAuthenticatedProfile(session){
     isChef:!!data.is_chef,
     userId:session.user.id
   };
-  if(CURRENT_AGENT.isChef&&!(await requireChiefMfa())) return false;
+  const needsMfa=CURRENT_AGENT.isChef||['sevci_med','sevci_data','sevci_sup'].some(r=>CURRENT_AGENT.permissions.includes(r));
+  if(needsMfa&&!(await requireChiefMfa())) return false;
   startApp();
   await pullFromCloud();
   await syncQueue();

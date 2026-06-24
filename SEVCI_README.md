@@ -30,6 +30,12 @@ Ajoutés à `SYNC_TABLES` → synchronisés comme les autres données.
    commentaire dans la migration).
 3. Le médecin-chef voit automatiquement l'onglet « Synthèse PVVIH ».
 
+**MFA obligatoire** : les 3 rôles SEV-CI exigent une session aal2 (comme le
+médecin-chef). À la 1re connexion, l'agent configure une application TOTP puis
+saisit un code à 6 chiffres. Le front déclenche ce flux et la RLS
+(`csa_has_aal2()`) refuse les données PVVIH tant que la session n'est pas aal2 —
+front et back doivent donc être déployés ensemble.
+
 ## ⚠️ État de test
 
 Code écrit sur la branche `feat/sevci-pvvih`, **non fusionné dans main**.
@@ -45,4 +51,3 @@ base (pas d'outil disponible côté assistant). À tester avant merge :
 - Édition d'un dossier existant depuis la file active (actuellement : ajout +
   mise à jour CV ; pas de formulaire d'édition complet).
 - Historique des charges virales par patient.
-- MFA (aal2) pour les rôles sevci vu la sensibilité des données.

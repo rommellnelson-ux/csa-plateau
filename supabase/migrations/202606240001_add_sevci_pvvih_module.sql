@@ -25,6 +25,18 @@
 
 begin;
 
+-- MFA générique : vrai si la session courante est de niveau aal2.
+-- Les données PVVIH exigent une session MFA, comme le médecin-chef.
+create or replace function public.csa_has_aal2()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce(auth.jwt()->>'aal', 'aal1') = 'aal2'
+$$;
+
 -- Recrée csa_can_read en conservant à l'identique les branches existantes
 -- (cf. 202606120003_require_chief_mfa.sql) et en ajoutant le rôle « sevci ».
 create or replace function public.csa_can_read(target_table text)
@@ -47,7 +59,7 @@ as $$
         or ('labo' = any(p.permissions) and target_table in ('patients','consultations','labo_actes'))
         or ('pharmacie' = any(p.permissions) and target_table in ('patients','consultations','pharma_ventes','pharma_stock'))
         or ('compta' = any(p.permissions) and target_table in ('transactions','clotures','audit_logs'))
-        or (p.permissions && array['sevci_med','sevci_data','sevci_sup'] and target_table in ('sevci_pvvih','sevci_actions'))
+        or (public.csa_has_aal2() and p.permissions && array['sevci_med','sevci_data','sevci_sup'] and target_table in ('sevci_pvvih','sevci_actions'))
       )
   )
 $$;
@@ -72,12 +84,15 @@ as $$
         or ('labo' = any(p.permissions) and target_table in ('labo_actes','transactions','audit_logs'))
         or ('pharmacie' = any(p.permissions) and target_table in ('pharma_ventes','pharma_stock','transactions','audit_logs'))
         or ('compta' = any(p.permissions) and target_table in ('clotures','audit_logs'))
-        or ('sevci_med' = any(p.permissions) and target_table in ('sevci_actions','audit_logs'))
-        or ('sevci_data' = any(p.permissions) and target_table in ('sevci_pvvih','sevci_actions','audit_logs'))
-        or ('sevci_sup' = any(p.permissions) and target_table in ('sevci_pvvih','sevci_actions','audit_logs'))
+        or (public.csa_has_aal2() and 'sevci_med' = any(p.permissions) and target_table in ('sevci_actions','audit_logs'))
+        or (public.csa_has_aal2() and 'sevci_data' = any(p.permissions) and target_table in ('sevci_pvvih','sevci_actions','audit_logs'))
+        or (public.csa_has_aal2() and 'sevci_sup' = any(p.permissions) and target_table in ('sevci_pvvih','sevci_actions','audit_logs'))
       )
   )
 $$;
+
+revoke all on function public.csa_has_aal2() from public;
+grant execute on function public.csa_has_aal2() to authenticated;
 
 commit;
 
