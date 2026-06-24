@@ -5,19 +5,37 @@
 -- IMPORTANT : ce projet est event-sourced. Toutes les données métier
 -- transitent par public.csa_events (colonne table_name + payload), et NON
 -- par des tables dédiées. Il n'existe pas de table public.patients.
--- Cette migration n'ajoute donc AUCUNE table : elle accorde au rôle
--- « sevci » l'accès en lecture/écriture à de nouveaux table_name PVVIH,
+-- Cette migration n'ajoute donc AUCUNE table : elle accorde aux 3 rôles
+-- SEV-CI l'accès en lecture/écriture à de nouveaux table_name PVVIH,
 -- exactement comme les rôles existants (soins, labo, pharmacie…).
 --
+-- 3 rôles (= permissions dans csa_profiles.permissions) :
+--   • sevci_med   — médiatrice communautaire : écrit sevci_actions
+--   • sevci_data  — moniteur de données      : écrit sevci_pvvih (+ CV)
+--   • sevci_sup   — superviseur              : lecture + corrections + DSASA
+--   Le médecin-chef (is_chef + aal2) voit la synthèse de tous.
+--
 -- Nouveaux table_name introduits :
---   • sevci_pvvih  — dossiers de suivi PVVIH (file active, CV, IIT, IVSA)
---   • sevci_staff  — personnels SEV-CI
+--   • sevci_pvvih   — dossiers de suivi PVVIH (file active, CV, IIT, IVSA)
+--   • sevci_actions — actions communautaires (visites, PDV, rappels…)
 --
 -- ⚠️ NON TESTÉ en base. À exécuter dans un projet de staging et à vérifier
 --    (notamment l'isolation RLS) AVANT toute exécution en production.
 -- ════════════════════════════════════════════════════════
 
 begin;
+
+-- MFA générique : vrai si la session courante est de niveau aal2.
+-- Les données PVVIH exigent une session MFA, comme le médecin-chef.
+create or replace function public.csa_has_aal2()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce(auth.jwt()->>'aal', 'aal1') = 'aal2'
+$$;
 
 -- Recrée csa_can_read en conservant à l'identique les branches existantes
 -- (cf. 202606120003_require_chief_mfa.sql) et en ajoutant le rôle « sevci ».
@@ -41,7 +59,7 @@ as $$
         or ('labo' = any(p.permissions) and target_table in ('patients','consultations','labo_actes'))
         or ('pharmacie' = any(p.permissions) and target_table in ('patients','consultations','pharma_ventes','pharma_stock'))
         or ('compta' = any(p.permissions) and target_table in ('transactions','clotures','audit_logs'))
-        or ('sevci' = any(p.permissions) and target_table in ('patients','consultations','sevci_pvvih','sevci_staff'))
+        or (public.csa_has_aal2() and p.permissions && array['sevci_med','sevci_data','sevci_sup'] and target_table in ('sevci_pvvih','sevci_actions'))
       )
   )
 $$;
@@ -66,25 +84,35 @@ as $$
         or ('labo' = any(p.permissions) and target_table in ('labo_actes','transactions','audit_logs'))
         or ('pharmacie' = any(p.permissions) and target_table in ('pharma_ventes','pharma_stock','transactions','audit_logs'))
         or ('compta' = any(p.permissions) and target_table in ('clotures','audit_logs'))
-        or ('sevci' = any(p.permissions) and target_table in ('sevci_pvvih','sevci_staff','audit_logs'))
+        or (public.csa_has_aal2() and 'sevci_med' = any(p.permissions) and target_table in ('sevci_actions','audit_logs'))
+        or (public.csa_has_aal2() and 'sevci_data' = any(p.permissions) and target_table in ('sevci_pvvih','sevci_actions','audit_logs'))
+        or (public.csa_has_aal2() and 'sevci_sup' = any(p.permissions) and target_table in ('sevci_pvvih','sevci_actions','audit_logs'))
       )
   )
 $$;
 
+revoke all on function public.csa_has_aal2() from public;
+grant execute on function public.csa_has_aal2() to authenticated;
+
 commit;
 
 -- ════════════════════════════════════════════════════════
--- Attribution du rôle « sevci » à un agent (à adapter) :
+-- Création des 3 profils SEV-CI (après avoir créé les utilisateurs dans
+-- Authentication > Users). module = 'sevci' (gate de connexion), et la
+-- permission précise le rôle :
 --
---   update public.csa_profiles
---   set permissions = array_append(permissions, 'sevci')
---   where agent_code = 'CODE_AGENT_SEVCI';
+--   insert into public.csa_profiles
+--     (user_id, agent_code, display_name, job_title, module, permissions, is_chef)
+--   values
+--     ('UUID_AUTH_1','SEVCI-MED','Médiatrice communautaire','Médiatrice communautaire SEV-CI','sevci', array['sevci_med'],  false),
+--     ('UUID_AUTH_2','SEVCI-DAT','Moniteur de données',     'Moniteur de données SEV-CI',     'sevci', array['sevci_data'], false),
+--     ('UUID_AUTH_3','SEVCI-SUP','Superviseur',             'Superviseur SEV-CI',             'sevci', array['sevci_sup'],  false);
 --
 -- Vérification d'isolation (doit renvoyer QUE les données autorisées) :
 --   select public.csa_can_read('sevci_pvvih');   -- true pour un agent sevci
 --   select public.csa_can_read('pharma_stock');  -- false pour un agent sevci seul
 --
 -- Remarque sécurité : les données PVVIH sont particulièrement sensibles.
--- Envisager d'exiger une session aal2 (MFA) pour le rôle sevci, sur le
+-- Envisager d'exiger une session aal2 (MFA) pour les rôles sevci, sur le
 -- modèle de csa_chief_has_aal2(), avant la mise en production.
 -- ════════════════════════════════════════════════════════

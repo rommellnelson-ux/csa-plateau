@@ -1,49 +1,53 @@
-# Module SEVCI / PVVIH — état réel et travail restant
+# Module SEVCI / PVVIH
 
-## Contexte
+Suivi des PVVIH par l'équipe SEV-CI, intégré dans `index.html` sur le modèle
+des modules existants (soins, pharmacie). Branche : `feat/sevci-pvvih`.
 
-Le fichier source `module_pvvih_CSA-GR-Plateau_v4.html` (≈1089 lignes) est une
-maquette **autonome** (HTML/CSS/JS, sans dépendance externe) pour le suivi des
-PVVIH par le personnel SEV-CI : revue de performance (95-95-95), file active,
-charge virale, IIT/RDV manqués, IVSA, indicateurs, rapport DSASA, etc.
+## Les 3 rôles (+ médecin-chef)
 
-## Contrainte d'architecture (important)
+| Rôle | module / permission | Onglets | Fait quoi |
+|------|--------------------|---------|-----------|
+| Médiatrice communautaire | `sevci` / `sevci_med` | Action communautaire, Actions | Saisit les actions terrain : visites, recherche de perdus de vue, rappels RDV, soutien observance |
+| Moniteur de données | `sevci` / `sevci_data` | File active, Charge virale, Indicateurs | Saisit/maintient les dossiers PVVIH et les charges virales ; voit la cascade 95-95-95 |
+| Superviseur | `sevci` / `sevci_sup` | Supervision, Actions, File active, Rapport DSASA | Contrôle le travail de l'équipe, corrige, exporte le rapport DSASA |
+| Médecin-chef | `chef` (MFA) | onglet **Synthèse PVVIH** | Voit la synthèse consolidée (KPIs, cascade, activité par agent) |
 
-L'application déployée (`index.html`) est **monolithique** et **event-sourced** :
+## Données (event-sourced via `csa_events`)
 
-- toutes les données transitent par la table Supabase `csa_events`
-  (colonne `table_name` + payload JSON), synchronisée depuis le localStorage ;
-- il **n'existe pas** de tables métier dédiées (`patients`, etc.) ;
-- les droits sont portés par `csa_profiles.permissions[]` et appliqués via
-  les fonctions `csa_can_read(table_name)` / `csa_can_write(table_name)`.
+- `sevci_pvvih` — un enregistrement par patient : n° dossier, nom, sexe, date
+  d'inclusion, régime ARV, CD4 initial, statut (actif/interrompu/perdu),
+  stade IVSA, dernière charge virale + date de suppression.
+- `sevci_actions` — une ligne par action communautaire.
 
-Toute intégration SEVCI doit suivre ce modèle — pas de tables séparées, pas de
-fichiers `js/views/` (l'appli n'est pas modulaire).
+Ajoutés à `SYNC_TABLES` → synchronisés comme les autres données.
 
-## Ce qui est livré ici
+## Mise en service
 
-- **`supabase/migrations/202606240001_add_sevci_pvvih_module.sql`**
-  Accorde au rôle `sevci` l'accès lecture/écriture aux nouveaux `table_name`
-  `sevci_pvvih` et `sevci_staff`, en recréant `csa_can_read/write` à l'identique
-  des branches existantes. **Non testé en base** — à valider en staging.
-- **`SEVCI_SAMPLE_DATA.json`** — jeu d'exemple illustratif. À interpréter comme
-  des *payloads* d'événements `table_name='sevci_pvvih'` / `'sevci_staff'`, et
-  non comme des lignes de tables dédiées (les IDs y sont fictifs).
+1. Exécuter `supabase/migrations/202606240001_add_sevci_pvvih_module.sql`
+   (étend les fonctions RLS `csa_can_read/write` pour les 3 permissions).
+2. Créer 3 utilisateurs dans Supabase Auth, puis 3 profils `csa_profiles`
+   avec `module='sevci'` et la permission correspondante (exemple SQL en
+   commentaire dans la migration).
+3. Le médecin-chef voit automatiquement l'onglet « Synthèse PVVIH ».
 
-## Ce qui reste à faire (non commencé)
+**MFA obligatoire** : les 3 rôles SEV-CI exigent une session aal2 (comme le
+médecin-chef). À la 1re connexion, l'agent configure une application TOTP puis
+saisit un code à 6 chiffres. Le front déclenche ce flux et la RLS
+(`csa_has_aal2()`) refuse les données PVVIH tant que la session n'est pas aal2 —
+front et back doivent donc être déployés ensemble.
 
-1. **UI dans `index.html`** : ajouter un onglet `sevci` (gardé par la
-   permission), et les vues file active / dossier / charge virale / indicateurs
-   en réutilisant `DB.get/set('sevci_pvvih')`, `escHtml`, `logAudit`, le système
-   de sync existant. À intégrer dans le monolithe, pas dans un fichier séparé.
-2. **Enregistrement du rôle** : ajouter `sevci` à la liste des permissions/onglets
-   côté front (table `PERMISSION_TABS` / labels).
-3. **MFA** : décider si l'accès PVVIH exige une session aal2 (recommandé vu la
-   sensibilité), et le cas échéant l'ajouter dans la migration.
-4. **Tests réels** : exécuter la migration en staging, vérifier l'isolation RLS
-   (un agent `sevci` ne voit pas pharma/compta, et inversement), puis valider
-   l'UI dans un navigateur.
+## ⚠️ État de test
 
-Aucune de ces étapes n'est faite ni testée à ce jour. Ce README remplace des
-documents antérieurs qui décrivaient à tort une architecture à tables séparées
-et un module JS « déjà généré et commité » qui n'existait pas.
+Code écrit sur la branche `feat/sevci-pvvih`, **non fusionné dans main**.
+Vérifié ici : équilibrage des accolades/parenthèses + présence d'une vue pour
+chaque onglet. **Non vérifié** : exécution réelle en navigateur et migration en
+base (pas d'outil disponible côté assistant). À tester avant merge :
+- ouvrir l'appli, se connecter avec chaque profil, saisir un dossier + une CV +
+  une action, vérifier les listes et la synthèse chef ;
+- exécuter la migration en staging et vérifier l'isolation RLS.
+
+## Pistes suivantes (non faites)
+
+- Édition d'un dossier existant depuis la file active (actuellement : ajout +
+  mise à jour CV ; pas de formulaire d'édition complet).
+- Historique des charges virales par patient.
