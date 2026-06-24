@@ -503,21 +503,8 @@ const SOINS_ACTES = [
 // STOCKAGE LOCAL
 // ════════════════════════════════════════════════════════
 const DB = {
-  get:(k)=>{ 
-    const encoded = localStorage.getItem('csa2_'+k);
-    if(!encoded) return [];
-    const sensitive = ['patients','consultations','soins','constantes','observations','labo_actes','pharma_ventes','pharma_stock','transactions','audit_logs','clotures','sq'];
-    if(sensitive.includes(k)) {
-      const decrypted = SecureStorage.decrypt(encoded);
-      return decrypted || [];
-    }
-    try{return JSON.parse(encoded);}catch{return[];} 
-  },
-  set:(k,v)=>{ 
-    const sensitive = ['patients','consultations','soins','constantes','observations','labo_actes','pharma_ventes','pharma_stock','transactions','audit_logs','clotures','sq'];
-    const encrypted = sensitive.includes(k) ? SecureStorage.encrypt(v) : JSON.stringify(v);
-    localStorage.setItem('csa2_'+k, encrypted); 
-  },
+  get:(k)=>{ try{return JSON.parse(localStorage.getItem('csa2_'+k)||'[]');}catch{return[];} },
+  set:(k,v)=>{ localStorage.setItem('csa2_'+k,JSON.stringify(v)); },
   push:(k,item)=>{
     if(!CURRENT_AGENT) throw new Error('Session authentifiée requise');
     const arr=DB.get(k);
@@ -725,40 +712,6 @@ function startApp(){
   showView(tabs[0]);
   updateSyncStatus();
 }
-// Encryption utility for sensitive localStorage
-const SecureStorage = {
-  encrypt: (data) => btoa(JSON.stringify(data)),
-  decrypt: (encoded) => {
-    try { return JSON.parse(atob(encoded)); } catch(e) { return null; }
-  }
-};
-const CSPTest = {
-  validatePolicy: function() {
-    const meta = document.querySelector('meta[http-equiv="Content-Security-Policy"]');
-    console.log('[CSP TEST] Policy validation:', meta ? 'PASS' : 'FAIL');
-    return !!meta;
-  },
-  testEncryption: function() {
-    try {
-      const test = {id:'1',name:'Test'};
-      const enc = SecureStorage.encrypt(test);
-      const dec = SecureStorage.decrypt(enc);
-      const pass = JSON.stringify(test) === JSON.stringify(dec);
-      console.log('[SECURITY TEST] Encryption:', pass ? 'PASS' : 'FAIL');
-      return pass;
-    } catch(e) { 
-      console.error('[SECURITY TEST] Encryption failed:', e);
-      return false;
-    }
-  },
-  runAll: function() {
-    console.log('[CSP Security Suite] Running validation tests...');
-    return [this.validatePolicy(), this.testEncryption()].every(r=>r);
-  }
-};
-
-
-
 // ════════════════════════════════════════════════════════
 // PRODUCTION MONITORING - Immediate Recommendations
 // ════════════════════════════════════════════════════════
