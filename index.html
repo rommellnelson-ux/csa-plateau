@@ -272,7 +272,7 @@ const SUPABASE_URL = 'https://wsnehnempnexzxzuklbv.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_FKlt6IevUM0nceNw13qiMA_OxMponku';
 const INSTITUTION_LOGO_URL = './assets/logo.png';
 const CLOUD_TABLE = 'csa_events';
-const SYNC_TABLES = ['patients','consultations','constantes','transactions','labo_actes','soins','observations','pharma_ventes','pharma_stock','pharma_lots','pharma_mouvements','pharma_inventaires','pharma_catalogue_historique','pharma_aliases','pharma_registre_historique','pharma_composants_historiques','clotures','audit_logs'];
+const SYNC_TABLES = ['patients','consultations','constantes','transactions','labo_actes','soins','observations','pharma_ventes','pharma_stock','pharma_lots','pharma_mouvements','pharma_inventaires','pharma_catalogue_historique','pharma_aliases','pharma_registre_historique','pharma_composants_historiques','clotures','audit_logs','sevci_pvvih','sevci_actions'];
 let supa = null;
 let IS_ONLINE = navigator.onLine;
 let SYNC_Q = JSON.parse(localStorage.getItem('csa2_sq')||'[]');
@@ -562,7 +562,8 @@ const MODULE_TABS = {
   labo:   ['labo-saisie','labo-resultats','labo-feuilles'],
   pharmacie:['pha-vente','pha-stock','pha-catalogue','pha-mouvements','pha-inventaire','pha-tableau'],
   compta: ['cpt-caisse','cpt-cloture','cpt-rapports'],
-  chef:   ['chef-dashboard','acc-consultation','chef-patients','chef-dossier','chef-pharmacie','chef-alertes','chef-mensuel','chef-prix','chef-audit','chef-exports'],
+  chef:   ['chef-dashboard','acc-consultation','chef-patients','chef-dossier','chef-pharmacie','chef-alertes','chef-sevci','chef-mensuel','chef-prix','chef-audit','chef-exports'],
+  sevci:  ['sevci-file','sevci-cv','sevci-indicateurs','sevci-communautaire','sevci-actions-liste','sevci-supervision','sevci-dsasa'],
 };
 const PERMISSION_TABS = {
   accueil:MODULE_TABS.accueil,
@@ -572,6 +573,10 @@ const PERMISSION_TABS = {
   pharmacie:MODULE_TABS.pharmacie,
   compta:MODULE_TABS.compta,
   chef:MODULE_TABS.chef,
+  sevci:MODULE_TABS.sevci,
+  sevci_med:['sevci-communautaire','sevci-actions-liste'],
+  sevci_data:['sevci-file','sevci-cv','sevci-indicateurs'],
+  sevci_sup:['sevci-supervision','sevci-actions-liste','sevci-file','sevci-dsasa'],
 };
 const TAB_LABELS = {
   'acc-reception':'Accueil patient','acc-constantes':'Constantes','acc-consultation':'Consultation','acc-liste':'File du jour',
@@ -579,7 +584,8 @@ const TAB_LABELS = {
   'labo-saisie':'Saisie actes','labo-resultats':'Résultats','labo-feuilles':'Feuilles CMU',
   'pha-vente':'Délivrance','pha-stock':'Stock & lots','pha-catalogue':'Catalogue','pha-mouvements':'Mouvements','pha-inventaire':'Inventaire','pha-tableau':'Tableau de bord',
   'cpt-caisse':'Caisse du jour','cpt-cloture':'Clôture','cpt-rapports':'Rapports',
-  'chef-dashboard':'Tableau de bord','chef-alertes':'Alertes','chef-patients':'Dossiers patients','chef-dossier':'Dossier complet','chef-pharmacie':'Pharmacie','chef-mensuel':'Statistiques','chef-prix':'Gestion prix','chef-audit':'Traçabilité','chef-exports':'Exports',
+  'chef-dashboard':'Tableau de bord','chef-alertes':'Alertes','chef-patients':'Dossiers patients','chef-dossier':'Dossier complet','chef-pharmacie':'Pharmacie','chef-sevci':'Synthèse PVVIH','chef-mensuel':'Statistiques','chef-prix':'Gestion prix','chef-audit':'Traçabilité','chef-exports':'Exports',
+  'sevci-file':'File active','sevci-cv':'Charge virale','sevci-indicateurs':'Indicateurs','sevci-communautaire':'Action communautaire','sevci-actions-liste':'Actions','sevci-supervision':'Supervision','sevci-dsasa':'Rapport DSASA',
 };
 
 async function authLogin(event){
@@ -1966,6 +1972,208 @@ VIEW['soins-liste'] = (el) => {
       ${soins.length?`<tr class="tr-tot"><td colspan="4">TOTAL</td><td>${fmt(tot)}</td><td>${fmt(soins.reduce((s,a)=>s+a.cnam,0))}</td><td>${fmt(soins.reduce((s,a)=>s+a.tm,0))}</td><td></td></tr>`:''}
     </table></div>
   </div>`;
+};
+
+// ── SEVCI / PVVIH ───────────────────────────────────────
+const SEVCI_ARV=['TDF/3TC/DTG','ABC/3TC/DTG','TDF/3TC/EFV','AZT/3TC/NVP','Autre'];
+const SEVCI_IIT=['actif','interrompu','perdu'];
+const SEVCI_IVSA=['non_applicable','stade1','stade2','stade3','stade4'];
+const SEVCI_ACTIONS=['Visite à domicile','Appel téléphonique','Recherche perdu de vue','Rappel de RDV','Soutien à l\'observance','Causerie éducative','Autre'];
+
+function sevciUpdateFile(id,updates){
+  const arr=DB.get('sevci_pvvih');
+  const i=arr.findIndex(p=>p.id===id); if(i<0) return false;
+  arr[i]={...arr[i],...updates,updated_at:new Date().toISOString()};
+  DB.set('sevci_pvvih',arr); queueSync('sevci_pvvih',arr[i]); if(IS_ONLINE&&supa) syncQueue();
+  return true;
+}
+function sevciIndic(){
+  const p=DB.get('sevci_pvvih');
+  const cvFaite=p.filter(x=>x.charge_virale_val!=null&&x.charge_virale_val!=='');
+  const supp=cvFaite.filter(x=>+x.charge_virale_val<1000).length;
+  const onARV=p.filter(x=>x.regime_arv).length;
+  return {
+    total:p.length,
+    actif:p.filter(x=>x.iit_status==='actif').length,
+    iit:p.filter(x=>x.iit_status==='interrompu').length,
+    ivsa:p.filter(x=>x.ivsa_stade&&x.ivsa_stade!=='non_applicable').length,
+    onARV, cvFaite:cvFaite.length, supp,
+    pctARV:p.length?Math.round(onARV/p.length*100):0,
+    pctSupp:onARV?Math.round(supp/onARV*100):0
+  };
+}
+function sevciSynthHTML(){
+  const k=sevciIndic();
+  return `
+  <div class="g4">
+    <div class="kpi"><div class="kpi-lbl">File active</div><div class="kpi-val">${k.actif}</div><div class="kpi-sub">sur ${k.total} dossiers</div></div>
+    <div class="kpi"><div class="kpi-lbl">CV supprimée</div><div class="kpi-val">${k.supp}</div><div class="kpi-sub">${k.pctSupp}% des sous ARV</div></div>
+    <div class="kpi"><div class="kpi-lbl">IIT (interrompus)</div><div class="kpi-val">${k.iit}</div><div class="kpi-sub">à relancer</div></div>
+    <div class="kpi"><div class="kpi-lbl">IVSA</div><div class="kpi-val">${k.ivsa}</div><div class="kpi-sub">stade avancé</div></div>
+  </div>
+  <div class="card"><div class="card-title">Cascade 95-95-95</div>
+    <p style="font-size:12px">Sous ARV : <strong>${k.pctARV}%</strong> (${k.onARV}/${k.total}) — CV documentée : <strong>${k.cvFaite}</strong> — CV supprimée : <strong>${k.pctSupp}%</strong> (${k.supp}/${k.onARV})</p>
+  </div>
+  <div class="card"><div class="card-title">Activité communautaire</div>
+    <p style="font-size:12px">${DB.get('sevci_actions').length} action(s) au total — aujourd'hui : <strong>${DB.todayItems('sevci_actions').length}</strong></p>
+  </div>`;
+}
+function sevciAgentTableHTML(){
+  const byAgent={};
+  DB.get('sevci_pvvih').forEach(p=>{const a=p.agent_nom||'—';(byAgent[a]=byAgent[a]||{files:0,actions:0}).files++;});
+  DB.get('sevci_actions').forEach(x=>{const a=x.agent_nom||'—';(byAgent[a]=byAgent[a]||{files:0,actions:0}).actions++;});
+  const rows=Object.entries(byAgent);
+  return `<div class="card"><div class="card-title">Activité par agent</div><div class="tw"><table>
+    <tr><th>Agent</th><th>Dossiers saisis</th><th>Actions communautaires</th></tr>
+    ${rows.map(([a,v])=>`<tr><td>${escHtml(a)}</td><td>${v.files}</td><td>${v.actions}</td></tr>`).join('')||'<tr><td colspan="3" style="text-align:center;color:#aaa;padding:16px">Aucune donnée</td></tr>'}
+  </table></div></div>`;
+}
+
+VIEW['sevci-file'] = (el) => {
+  const list=DB.get('sevci_pvvih');
+  el.innerHTML=`
+  <div class="card"><div class="card-title">Nouveau dossier PVVIH</div>
+    <div class="fs">
+      <div class="fr"><label>N° dossier</label><input id="sv-dossier" placeholder="Ex : PVVIH-2026-001"></div>
+      <div class="fr"><label>Nom</label><input id="sv-nom"></div>
+      <div class="fr"><label>Sexe</label><select id="sv-sexe"><option>F</option><option>M</option></select></div>
+      <div class="fr"><label>Date d'inclusion</label><input type="date" id="sv-incl" value="${today()}"></div>
+      <div class="fr"><label>Régime ARV</label><select id="sv-arv">${SEVCI_ARV.map(a=>`<option>${a}</option>`).join('')}</select></div>
+      <div class="fr"><label>CD4 initial</label><input type="number" id="sv-cd4"></div>
+      <div class="fr"><label>Statut traitement</label><select id="sv-iit">${SEVCI_IIT.map(s=>`<option>${s}</option>`).join('')}</select></div>
+      <div class="fr"><label>Stade IVSA</label><select id="sv-ivsa">${SEVCI_IVSA.map(s=>`<option>${s}</option>`).join('')}</select></div>
+      <button class="btn btn-primary" onclick="sevciSaveFile()">Enregistrer le dossier</button>
+    </div>
+  </div>
+  <div class="card"><div class="card-title">File active PVVIH (${list.length})</div>
+    <div class="tw"><table>
+      <tr><th>Dossier</th><th>Nom</th><th>Régime ARV</th><th>Dernière CV</th><th>Statut</th><th>IVSA</th><th>Agent</th></tr>
+      ${list.map(p=>`<tr>
+        <td>${escHtml(p.num_dossier||'—')}</td>
+        <td style="font-weight:700">${escHtml(p.nom||'—')}</td>
+        <td style="font-size:10px">${escHtml(p.regime_arv||'—')}</td>
+        <td>${(p.charge_virale_val!=null&&p.charge_virale_val!=='')?escHtml(String(p.charge_virale_val)):'—'}</td>
+        <td>${badge(p.iit_status==='actif'?'OK':(p.iit_status==='interrompu'?'ERR':'WARN'))} <span style="font-size:10px">${escHtml(p.iit_status||'')}</span></td>
+        <td style="font-size:10px">${escHtml(p.ivsa_stade||'')}</td>
+        <td style="font-size:10px;color:var(--muted)">${escHtml(p.agent_nom||'')}</td>
+      </tr>`).join('')||'<tr><td colspan="7" style="text-align:center;color:#aaa;padding:16px">Aucun dossier</td></tr>'}
+    </table></div>
+  </div>`;
+};
+function sevciSaveFile(){
+  const nom=document.getElementById('sv-nom').value.trim();
+  const dossier=document.getElementById('sv-dossier').value.trim();
+  if(!nom||!dossier){alert('N° dossier et nom requis');return;}
+  DB.push('sevci_pvvih',{
+    num_dossier:dossier, nom, sexe:document.getElementById('sv-sexe').value,
+    date_inclusion:document.getElementById('sv-incl').value,
+    regime_arv:document.getElementById('sv-arv').value,
+    cd4_initial:+document.getElementById('sv-cd4').value||null,
+    iit_status:document.getElementById('sv-iit').value,
+    ivsa_stade:document.getElementById('sv-ivsa').value,
+    charge_virale_val:null, charge_virale_date:null, cv_supprimee_date:null
+  });
+  logAudit('SEVCI_FILE_ADD',{dossier,nom});
+  showView('sevci-file');
+}
+
+VIEW['sevci-cv'] = (el) => {
+  const list=DB.get('sevci_pvvih');
+  el.innerHTML=`
+  <div class="card"><div class="card-title">Saisie d'une charge virale</div>
+    <div class="fs">
+      <div class="fr"><label>Patient</label><select id="cv-pid">${list.map(p=>`<option value="${p.id}">${escHtml(p.num_dossier||'')} — ${escHtml(p.nom||'')}</option>`).join('')}</select></div>
+      <div class="fr"><label>Date de prélèvement</label><input type="date" id="cv-date" value="${today()}"></div>
+      <div class="fr"><label>Résultat (cp/mL)</label><input type="number" id="cv-val"></div>
+      <button class="btn btn-primary" onclick="sevciSaveCV()">Enregistrer la CV</button>
+    </div>
+    <p style="font-size:11px;color:var(--muted)">Suppression virologique si résultat &lt; 1000 cp/mL.</p>
+  </div>`;
+};
+function sevciSaveCV(){
+  const id=document.getElementById('cv-pid').value;
+  const val=+document.getElementById('cv-val').value;
+  const date=document.getElementById('cv-date').value;
+  if(!id||!val){alert('Patient et résultat requis');return;}
+  const supp=val<1000;
+  const upd={charge_virale_val:val,charge_virale_date:date};
+  if(supp) upd.cv_supprimee_date=date;
+  sevciUpdateFile(id,upd);
+  logAudit('SEVCI_CV_ADD',{patient:id,val});
+  alert(supp?'Charge virale supprimée enregistrée.':'CV non supprimée (≥ 1000) — patient à suivre.');
+  showView('sevci-cv');
+}
+
+VIEW['sevci-indicateurs'] = (el) => { el.innerHTML=sevciSynthHTML(); };
+
+VIEW['sevci-communautaire'] = (el) => {
+  el.innerHTML=`
+  <div class="card"><div class="card-title">Enregistrer une action communautaire</div>
+    <div class="fs">
+      <div class="fr"><label>Type d'action</label><select id="ac-type">${SEVCI_ACTIONS.map(a=>`<option>${a}</option>`).join('')}</select></div>
+      <div class="fr"><label>Bénéficiaire</label><input id="ac-nom"></div>
+      <div class="fr"><label>N° dossier (optionnel)</label><input id="ac-dossier"></div>
+      <div class="fr"><label>Résultat</label><select id="ac-res"><option>Réalisé</option><option>Tentative sans succès</option><option>Reprogrammé</option></select></div>
+      <div class="fr"><label>Notes</label><textarea id="ac-notes"></textarea></div>
+      <button class="btn btn-primary" onclick="sevciSaveAction()">Enregistrer l'action</button>
+    </div>
+  </div>`;
+};
+function sevciSaveAction(){
+  const nom=document.getElementById('ac-nom').value.trim();
+  if(!nom){alert('Bénéficiaire requis');return;}
+  DB.push('sevci_actions',{
+    type:document.getElementById('ac-type').value,
+    patient_nom:nom,
+    num_dossier:document.getElementById('ac-dossier').value.trim(),
+    resultat:document.getElementById('ac-res').value,
+    notes:document.getElementById('ac-notes').value.trim()
+  });
+  logAudit('SEVCI_ACTION_ADD',{type:document.getElementById('ac-type').value});
+  showView('sevci-actions-liste');
+}
+
+VIEW['sevci-actions-liste'] = (el) => {
+  const acts=DB.get('sevci_actions').slice(0,200);
+  el.innerHTML=`<div class="card"><div class="card-title">Actions communautaires récentes (${acts.length})</div>
+    <div class="tw"><table>
+      <tr><th>Date</th><th>Type</th><th>Bénéficiaire</th><th>Résultat</th><th>Notes</th><th>Agent</th></tr>
+      ${acts.map(a=>`<tr>
+        <td>${fmtD(a.created_at)}</td>
+        <td>${escHtml(a.type||'')}</td>
+        <td style="font-weight:700">${escHtml(a.patient_nom||'')}</td>
+        <td>${escHtml(a.resultat||'')}</td>
+        <td style="font-size:10px">${escHtml(a.notes||'')}</td>
+        <td style="font-size:10px;color:var(--muted)">${escHtml(a.agent_nom||'')}</td>
+      </tr>`).join('')||'<tr><td colspan="6" style="text-align:center;color:#aaa;padding:16px">Aucune action</td></tr>'}
+    </table></div>
+  </div>`;
+};
+
+VIEW['sevci-supervision'] = (el) => {
+  el.innerHTML=`<div class="card"><div class="card-title">Supervision SEV-CI</div>
+    <p style="font-size:12px;color:var(--muted)">Synthèse consolidée du travail de l'équipe (moniteur de données + médiatrice communautaire).</p>
+  </div>`+sevciSynthHTML()+sevciAgentTableHTML();
+};
+
+VIEW['sevci-dsasa'] = (el) => {
+  el.innerHTML=`<div class="card"><div class="card-title">Rapport DSASA — PVVIH</div>${sevciSynthHTML()}
+    <button class="btn btn-primary" onclick="sevciExportDSASA()">Exporter le rapport (JSON)</button>
+  </div>`;
+};
+function sevciExportDSASA(){
+  const data={date:new Date().toISOString(),site:'01649',indicateurs:sevciIndic(),file_active:DB.get('sevci_pvvih'),actions:DB.get('sevci_actions')};
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url; a.download='DSASA_PVVIH_'+today()+'.json'; a.click();
+  logAudit('SEVCI_DSASA_EXPORT',{count:DB.get('sevci_pvvih').length});
+}
+
+VIEW['chef-sevci'] = (el) => {
+  el.innerHTML=`<div class="card"><div class="card-title">Synthèse SEV-CI / PVVIH</div>
+    <p style="font-size:12px;color:var(--muted)">Vue consolidée du programme PVVIH — travail des médiatrices, moniteurs de données et superviseurs.</p>
+  </div>`+sevciSynthHTML()+sevciAgentTableHTML();
 };
 
 // ── LABO — Saisie ───────────────────────────────────────
