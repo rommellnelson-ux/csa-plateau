@@ -1,0 +1,145 @@
+{
+  "sevci_staff": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440001",
+      "user_id": "user-sevci-001",
+      "code_staff": "DR-001",
+      "fonction": "Médecin VIH spécialiste",
+      "site": "01649",
+      "phone": "+225 01 23 45 67",
+      "email": "medecin.sevci@csa.ci",
+      "active": true,
+      "created_at": "2026-06-23T08:00:00Z"
+    },
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440002",
+      "user_id": "user-sevci-002",
+      "code_staff": "INF-001",
+      "fonction": "Infirmière VIH",
+      "site": "01649",
+      "phone": "+225 01 23 45 68",
+      "email": "infirmiere.sevci@csa.ci",
+      "active": true,
+      "created_at": "2026-06-23T08:00:00Z"
+    },
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440003",
+      "user_id": "user-sevci-003",
+      "code_staff": "COUN-001",
+      "fonction": "Conseillère psychosociale",
+      "site": "01649",
+      "phone": "+225 01 23 45 69",
+      "email": "conseilliere.sevci@csa.ci",
+      "active": true,
+      "created_at": "2026-06-23T08:00:00Z"
+    }
+  ],
+  "sevci_pvvih_patients": [
+    {
+      "id": "650e8400-e29b-41d4-a716-446655440001",
+      "patient_id": "patient-123",
+      "num_dossier": "CSA-2026-PVVIH-001",
+      "date_inclusion": "2024-03-15",
+      "regime_arv": "TDF/3TC/DTG",
+      "cd4_initial": 245,
+      "charge_virale_date": "2026-06-20",
+      "charge_virale_val": 45,
+      "cv_supprimee_date": "2025-12-01",
+      "iit_status": "actif",
+      "ivsa_stade": "non_applicable",
+      "vih_status": "positif confirmé",
+      "notes": "Patient stable sous traitement",
+      "created_at": "2026-06-23T08:00:00Z",
+      "created_by": "user-sevci-001"
+    },
+    {
+      "id": "650e8400-e29b-41d4-a716-446655440002",
+      "patient_id": "patient-124",
+      "num_dossier": "CSA-2026-PVVIH-002",
+      "date_inclusion": "2023-11-20",
+      "regime_arv": "ABC/3TC/DTG",
+      "cd4_initial": 198,
+      "charge_virale_date": "2026-06-18",
+      "charge_virale_val": 2500,
+      "cv_supprimee_date": null,
+      "iit_status": "interrompu",
+      "ivsa_stade": "stade3",
+      "vih_status": "positif confirmé",
+      "notes": "Non-suppression VL, rendez-vous manqués",
+      "created_at": "2026-06-23T08:00:00Z",
+      "created_by": "user-sevci-002"
+    },
+    {
+      "id": "650e8400-e29b-41d4-a716-446655440003",
+      "patient_id": "patient-125",
+      "num_dossier": "CSA-2026-PVVIH-003",
+      "date_inclusion": "2025-01-10",
+      "regime_arv": "EFV/3TC/TDF",
+      "cd4_initial": 312,
+      "charge_virale_date": "2026-06-19",
+      "charge_virale_val": 78,
+      "cv_supprimee_date": "2026-03-15",
+      "iit_status": "actif",
+      "ivsa_stade": "non_applicable",
+      "vih_status": "positif confirmé",
+      "notes": "Bonne adhérence, CV supprimée",
+      "created_at": "2026-06-23T08:00:00Z",
+      "created_by": "user-sevci-001"
+    }
+  ],
+  "sevci_indicators": {
+    "tx_curr": {
+      "label": "TX_CURR - File active",
+      "value": 342,
+      "target": 350,
+      "unit": "patients",
+      "period": "2026-06"
+    },
+    "tx_new": {
+      "label": "TX_NEW - Inclusions trimestriel",
+      "value": 28,
+      "target": 30,
+      "unit": "patients",
+      "period": "Q2-2026"
+    },
+    "tx_pvls": {
+      "label": "TX_PVLS - Suppression VL",
+      "value": 287,
+      "target": 342,
+      "percentage": 83.9,
+      "unit": "patients",
+      "period": "2026-06"
+    },
+    "iit": {
+      "label": "IIT - Interruptions (RDV > 28j)",
+      "value": 12,
+      "target": 0,
+      "percentage": 3.5,
+      "unit": "patients",
+      "period": "2026-06"
+    },
+    "ivsa": {
+      "label": "IVSA actifs",
+      "value": 5,
+      "unit": "patients",
+      "period": "2026-06"
+    }
+  },
+  "cascade_95_95_95": {
+    "diagnosed": {
+      "label": "Diagnostiqués",
+      "value": 365,
+      "target_95": 347
+    },
+    "on_arv": {
+      "label": "Sous TARV",
+      "value": 342,
+      "target_95": 329
+    },
+    "suppressed": {
+      "label": "Charge virale supprimée",
+      "value": 287,
+      "target_95": 312
+    }
+  }
+}
