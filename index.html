@@ -1681,7 +1681,7 @@ function searchSI(){
         <div style="display:flex;gap:4px;flex-wrap:wrap">${(getAlertFlags(getLatestConstantes(p.patient_id))).map(alertBadge).join('')}</div>
       </div>
       <span class="badge b-ok">SOINS</span>
-    </div>`).join('')||'<p style="color:#aaa;text-align:center;padding:8px">Aucun patient orienté SOINS</p>';
+    </div>`).join('')||'<div style="color:#667084;text-align:center;padding:10px;font-size:12px">Aucun patient <strong>orienté SOINS</strong> pour cette recherche.<br>Si le patient vient d\'être enregistré à l\'accueil, cochez <strong>« entrée directe »</strong> ci-dessus pour le retrouver par son nom (l\'orientation depuis une consultation n\'est alors pas requise).</div>';
 }
 function toggleSiDirect(){
   const isDirect=document.getElementById('si-direct')?.checked;
