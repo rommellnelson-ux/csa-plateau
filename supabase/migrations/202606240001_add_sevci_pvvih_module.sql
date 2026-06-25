@@ -25,6 +25,11 @@
 
 begin;
 
+-- Autoriser le module 'sevci' (la contrainte d'origine ne listait pas ce module).
+alter table public.csa_profiles drop constraint if exists csa_profiles_module_check;
+alter table public.csa_profiles add constraint csa_profiles_module_check
+  check (module in ('accueil','soins','labo','pharmacie','compta','chef','sevci'));
+
 -- MFA générique : vrai si la session courante est de niveau aal2.
 -- Les données PVVIH exigent une session MFA, comme le médecin-chef.
 create or replace function public.csa_has_aal2()
