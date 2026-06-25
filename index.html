@@ -2039,9 +2039,10 @@ VIEW['sevci-file'] = (el) => {
   const list=DB.get('sevci_pvvih');
   el.innerHTML=`
   <div class="card"><div class="card-title">Nouveau dossier PVVIH</div>
+    <div class="alert-box" style="background:#fdf3e2;border-left:4px solid var(--or);padding:8px 12px;font-size:11px;margin-bottom:10px">⚠️ Confidentialité : ne jamais saisir le nom du patient. Le N° de dossier suffit à l'identifier.</div>
     <div class="fs">
       <div class="fr"><label>N° dossier</label><input id="sv-dossier" placeholder="Ex : PVVIH-2026-001"></div>
-      <div class="fr"><label>Nom</label><input id="sv-nom"></div>
+      <div class="fr"><label>Catégorie</label><select id="sv-cat"><option>Militaire</option><option>Civil</option></select></div>
       <div class="fr"><label>Sexe</label><select id="sv-sexe"><option>F</option><option>M</option></select></div>
       <div class="fr"><label>Date d'inclusion</label><input type="date" id="sv-incl" value="${today()}"></div>
       <div class="fr"><label>Régime ARV</label><select id="sv-arv">${SEVCI_ARV.map(a=>`<option>${a}</option>`).join('')}</select></div>
@@ -2053,25 +2054,26 @@ VIEW['sevci-file'] = (el) => {
   </div>
   <div class="card"><div class="card-title">File active PVVIH (${list.length})</div>
     <div class="tw"><table>
-      <tr><th>Dossier</th><th>Nom</th><th>Régime ARV</th><th>Dernière CV</th><th>Statut</th><th>IVSA</th><th>Agent</th></tr>
+      <tr><th>Dossier</th><th>Catégorie</th><th>Sexe</th><th>Régime ARV</th><th>Dernière CV</th><th>Statut</th><th>IVSA</th><th>Agent</th></tr>
       ${list.map(p=>`<tr>
-        <td>${escHtml(p.num_dossier||'—')}</td>
-        <td style="font-weight:700">${escHtml(p.nom||'—')}</td>
+        <td style="font-weight:700">${escHtml(p.num_dossier||'—')}</td>
+        <td>${escHtml(p.categorie||'—')}</td>
+        <td style="font-size:10px">${escHtml(p.sexe||'—')}</td>
         <td style="font-size:10px">${escHtml(p.regime_arv||'—')}</td>
         <td>${(p.charge_virale_val!=null&&p.charge_virale_val!=='')?escHtml(String(p.charge_virale_val)):'—'}</td>
         <td>${badge(p.iit_status==='actif'?'OK':(p.iit_status==='interrompu'?'ERR':'WARN'))} <span style="font-size:10px">${escHtml(p.iit_status||'')}</span></td>
         <td style="font-size:10px">${escHtml(p.ivsa_stade||'')}</td>
         <td style="font-size:10px;color:var(--muted)">${escHtml(p.agent_nom||'')}</td>
-      </tr>`).join('')||'<tr><td colspan="7" style="text-align:center;color:#aaa;padding:16px">Aucun dossier</td></tr>'}
+      </tr>`).join('')||'<tr><td colspan="8" style="text-align:center;color:#aaa;padding:16px">Aucun dossier</td></tr>'}
     </table></div>
   </div>`;
 };
 function sevciSaveFile(){
-  const nom=document.getElementById('sv-nom').value.trim();
   const dossier=document.getElementById('sv-dossier').value.trim();
-  if(!nom||!dossier){alert('N° dossier et nom requis');return;}
+  if(!dossier){alert('N° dossier requis');return;}
   DB.push('sevci_pvvih',{
-    num_dossier:dossier, nom, sexe:document.getElementById('sv-sexe').value,
+    num_dossier:dossier, categorie:document.getElementById('sv-cat').value,
+    sexe:document.getElementById('sv-sexe').value,
     date_inclusion:document.getElementById('sv-incl').value,
     regime_arv:document.getElementById('sv-arv').value,
     cd4_initial:+document.getElementById('sv-cd4').value||null,
@@ -2079,7 +2081,7 @@ function sevciSaveFile(){
     ivsa_stade:document.getElementById('sv-ivsa').value,
     charge_virale_val:null, charge_virale_date:null, cv_supprimee_date:null
   });
-  logAudit('SEVCI_FILE_ADD',{dossier,nom});
+  logAudit('SEVCI_FILE_ADD',{dossier});
   showView('sevci-file');
 }
 
@@ -2088,7 +2090,7 @@ VIEW['sevci-cv'] = (el) => {
   el.innerHTML=`
   <div class="card"><div class="card-title">Saisie d'une charge virale</div>
     <div class="fs">
-      <div class="fr"><label>Patient</label><select id="cv-pid">${list.map(p=>`<option value="${p.id}">${escHtml(p.num_dossier||'')} — ${escHtml(p.nom||'')}</option>`).join('')}</select></div>
+      <div class="fr"><label>Dossier</label><select id="cv-pid">${list.map(p=>`<option value="${p.id}">${escHtml(p.num_dossier||'')} (${escHtml(p.categorie||'—')})</option>`).join('')}</select></div>
       <div class="fr"><label>Date de prélèvement</label><input type="date" id="cv-date" value="${today()}"></div>
       <div class="fr"><label>Résultat (cp/mL)</label><input type="number" id="cv-val"></div>
       <button class="btn btn-primary" onclick="sevciSaveCV()">Enregistrer la CV</button>
@@ -2117,21 +2119,22 @@ VIEW['sevci-communautaire'] = (el) => {
   <div class="card"><div class="card-title">Enregistrer une action communautaire</div>
     <div class="fs">
       <div class="fr"><label>Type d'action</label><select id="ac-type">${SEVCI_ACTIONS.map(a=>`<option>${a}</option>`).join('')}</select></div>
-      <div class="fr"><label>Bénéficiaire</label><input id="ac-nom"></div>
-      <div class="fr"><label>N° dossier (optionnel)</label><input id="ac-dossier"></div>
+      <div class="fr"><label>N° dossier PVVIH</label><input id="ac-dossier" placeholder="Ex : PVVIH-2026-001"></div>
+      <div class="fr"><label>Catégorie</label><select id="ac-cat"><option>Militaire</option><option>Civil</option></select></div>
       <div class="fr"><label>Résultat</label><select id="ac-res"><option>Réalisé</option><option>Tentative sans succès</option><option>Reprogrammé</option></select></div>
-      <div class="fr"><label>Notes</label><textarea id="ac-notes"></textarea></div>
+      <div class="fr"><label>Notes</label><textarea id="ac-notes" placeholder="Sans nom ni donnée identifiante"></textarea></div>
       <button class="btn btn-primary" onclick="sevciSaveAction()">Enregistrer l'action</button>
     </div>
+    <div class="alert-box" style="background:#fdf3e2;border-left:4px solid var(--or);padding:8px 12px;font-size:11px;margin-top:8px">⚠️ Confidentialité : identifier le bénéficiaire par son N° de dossier, jamais par son nom.</div>
   </div>`;
 };
 function sevciSaveAction(){
-  const nom=document.getElementById('ac-nom').value.trim();
-  if(!nom){alert('Bénéficiaire requis');return;}
+  const dossier=document.getElementById('ac-dossier').value.trim();
+  if(!dossier){alert('N° dossier requis');return;}
   DB.push('sevci_actions',{
     type:document.getElementById('ac-type').value,
-    patient_nom:nom,
-    num_dossier:document.getElementById('ac-dossier').value.trim(),
+    num_dossier:dossier,
+    categorie:document.getElementById('ac-cat').value,
     resultat:document.getElementById('ac-res').value,
     notes:document.getElementById('ac-notes').value.trim()
   });
@@ -2143,15 +2146,16 @@ VIEW['sevci-actions-liste'] = (el) => {
   const acts=DB.get('sevci_actions').slice(0,200);
   el.innerHTML=`<div class="card"><div class="card-title">Actions communautaires récentes (${acts.length})</div>
     <div class="tw"><table>
-      <tr><th>Date</th><th>Type</th><th>Bénéficiaire</th><th>Résultat</th><th>Notes</th><th>Agent</th></tr>
+      <tr><th>Date</th><th>Type</th><th>N° dossier</th><th>Catégorie</th><th>Résultat</th><th>Notes</th><th>Agent</th></tr>
       ${acts.map(a=>`<tr>
         <td>${fmtD(a.created_at)}</td>
         <td>${escHtml(a.type||'')}</td>
-        <td style="font-weight:700">${escHtml(a.patient_nom||'')}</td>
+        <td style="font-weight:700">${escHtml(a.num_dossier||'—')}</td>
+        <td>${escHtml(a.categorie||'—')}</td>
         <td>${escHtml(a.resultat||'')}</td>
         <td style="font-size:10px">${escHtml(a.notes||'')}</td>
         <td style="font-size:10px;color:var(--muted)">${escHtml(a.agent_nom||'')}</td>
-      </tr>`).join('')||'<tr><td colspan="6" style="text-align:center;color:#aaa;padding:16px">Aucune action</td></tr>'}
+      </tr>`).join('')||'<tr><td colspan="7" style="text-align:center;color:#aaa;padding:16px">Aucune action</td></tr>'}
     </table></div>
   </div>`;
 };
