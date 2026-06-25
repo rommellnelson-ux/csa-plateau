@@ -1,4 +1,4 @@
-const CACHE = 'csa-plateau-v14-inventory-new-products-cmu-markup';
+const CACHE = 'csa-plateau-v15-network-first';
 const ASSETS = [
   './',
   './index.html',
@@ -21,18 +21,39 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
-  // Ne pas intercepter les requêtes Supabase (sync temps réel)
-  if (e.request.url.includes('supabase.co')) return;
+  const req = e.request;
+  // Ne jamais intercepter Supabase (synchronisation temps réel)
+  if (req.url.includes('supabase.co')) return;
 
+  const isDoc = req.mode === 'navigate'
+    || req.destination === 'document'
+    || req.url.endsWith('/')
+    || req.url.endsWith('index.html');
+
+  if (isDoc) {
+    // RÉSEAU D'ABORD pour l'app : toujours la dernière version, repli cache hors-ligne.
+    e.respondWith(
+      fetch(req).then(resp => {
+        if (resp && resp.status === 200) {
+          const clone = resp.clone();
+          caches.open(CACHE).then(cache => cache.put('./index.html', clone));
+        }
+        return resp;
+      }).catch(() => caches.match(req).then(c => c || caches.match('./index.html')))
+    );
+    return;
+  }
+
+  // CACHE D'ABORD pour les bibliothèques externes (stables, versionnées par URL).
   e.respondWith(
-    caches.match(e.request).then(cached => {
+    caches.match(req).then(cached => {
       if (cached) return cached;
-      return fetch(e.request).then(response => {
-        if (!response || response.status !== 200) return response;
-        const clone = response.clone();
-        caches.open(CACHE).then(cache => cache.put(e.request, clone));
-        return response;
-      }).catch(() => caches.match('./index.html'));
+      return fetch(req).then(resp => {
+        if (!resp || resp.status !== 200) return resp;
+        const clone = resp.clone();
+        caches.open(CACHE).then(cache => cache.put(req, clone));
+        return resp;
+      });
     })
   );
 });
