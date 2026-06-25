@@ -37,8 +37,11 @@ as $$
   select coalesce(auth.jwt()->>'aal', 'aal1') = 'aal2'
 $$;
 
--- Recrée csa_can_read en conservant à l'identique les branches existantes
--- (cf. 202606120003_require_chief_mfa.sql) et en ajoutant le rôle « sevci ».
+-- Recrée csa_can_read/write en reprenant À L'IDENTIQUE l'état le plus récent
+-- (read = 202606130007, write = 202606120005, incl. accès pharmacie aux
+-- lots/mouvements/inventaires) et en ajoutant les 3 rôles « sevci ».
+-- ⚠️ Si d'autres migrations ont modifié ces fonctions depuis, re-synchroniser
+--    ces deux corps AVANT d'exécuter, sinon on régresse les accès existants.
 create or replace function public.csa_can_read(target_table text)
 returns boolean
 language sql
@@ -57,7 +60,10 @@ as $$
         or ('as' = any(p.permissions) and target_table in ('patients','constantes'))
         or ('soins' = any(p.permissions) and target_table in ('patients','consultations','constantes','soins','observations'))
         or ('labo' = any(p.permissions) and target_table in ('patients','consultations','labo_actes'))
-        or ('pharmacie' = any(p.permissions) and target_table in ('patients','consultations','pharma_ventes','pharma_stock'))
+        or ('pharmacie' = any(p.permissions) and target_table in (
+          'patients','consultations','pharma_ventes','pharma_stock',
+          'pharma_lots','pharma_mouvements','pharma_inventaires'
+        ))
         or ('compta' = any(p.permissions) and target_table in ('transactions','clotures','audit_logs'))
         or (public.csa_has_aal2() and p.permissions && array['sevci_med','sevci_data','sevci_sup'] and target_table in ('sevci_pvvih','sevci_actions'))
       )
@@ -82,7 +88,10 @@ as $$
         or ('as' = any(p.permissions) and target_table in ('patients','constantes','transactions','audit_logs'))
         or ('soins' = any(p.permissions) and target_table in ('soins','observations','transactions','audit_logs'))
         or ('labo' = any(p.permissions) and target_table in ('labo_actes','transactions','audit_logs'))
-        or ('pharmacie' = any(p.permissions) and target_table in ('pharma_ventes','pharma_stock','transactions','audit_logs'))
+        or ('pharmacie' = any(p.permissions) and target_table in (
+          'pharma_ventes','pharma_stock','pharma_lots','pharma_mouvements',
+          'pharma_inventaires','transactions','audit_logs'
+        ))
         or ('compta' = any(p.permissions) and target_table in ('clotures','audit_logs'))
         or (public.csa_has_aal2() and 'sevci_med' = any(p.permissions) and target_table in ('sevci_actions','audit_logs'))
         or (public.csa_has_aal2() and 'sevci_data' = any(p.permissions) and target_table in ('sevci_pvvih','sevci_actions','audit_logs'))
