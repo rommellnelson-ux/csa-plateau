@@ -1,0 +1,26 @@
+name: Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  browser-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Installer Playwright
+        run: |
+          npm init -y
+          npm i -D playwright@1.48.0
+          npx playwright install --with-deps chromium
+      - name: Servir l'application
+        run: python3 -m http.server 8000 &
+      - name: Lancer les tests
+        run: node tests/ci-runner.mjs
+        env:
+          TEST_URL: http://localhost:8000/tests.html

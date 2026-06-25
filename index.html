@@ -254,7 +254,7 @@ body.compact #content[data-view="cpt-caisse"] .g2{gap:8px;}
     </div>
     <div class="topbar-r">
       <span class="agent-chip" id="agent-chip">—</span>
-      <span><span class="sync-dot" id="sync-dot"></span><span id="sync-lbl">En ligne</span></span>
+      <span onclick="retrySync()" style="cursor:pointer" title="Cliquer pour relancer la synchronisation"><span class="sync-dot" id="sync-dot"></span><span id="sync-lbl">En ligne</span></span>
       <button class="btn-compact" id="compact-toggle" onclick="toggleCompactMode()">Compact</button>
       <span id="clock-top" style="opacity:.7"></span>
       <button class="btn-out" onclick="logout()">Déconnexion</button>
@@ -1009,7 +1009,7 @@ function renderClinicalSummary(patientId){
   const flags=getAlertFlags(lastConst);
   const consultations=DB.get('consultations').filter(c=>c.patient_id===patientId).slice(0,5);
   const prestataires=[...new Set(consultations.map(c=>c.agent_nom).filter(Boolean))];
-  const hist=consultations.map(c=>`${fmtD(c.created_at)} - ${c.type} (${c.agent_nom||'?'})`).join(' | ');
+  const hist=consultations.map(c=>`${fmtD(c.created_at)} - ${c.type} (${escHtml(c.agent_nom||'?')})`).join(' | ');
   return `<div class="fs" style="margin-top:8px">
     <div class="fs-title" style="color:var(--bleu)">Dossier clinique rapide</div>
     <div style="font-size:11px;margin-bottom:6px"><strong>Antécédents :</strong> ${escHtml(p.antecedents||'Non renseignés')}</div>
@@ -1973,7 +1973,7 @@ VIEW['soins-liste'] = (el) => {
         <td>${fmt(s.total)} F</td>
         <td style="color:var(--cmu)">${fmt(s.cnam)} F</td>
         <td style="color:var(--or)">${fmt(s.tm)} F</td>
-        <td style="font-size:10px;color:var(--muted)">${s.agent_nom}</td>
+        <td style="font-size:10px;color:var(--muted)">${escHtml(s.agent_nom)}</td>
       </tr>`).join('')||'<tr><td colspan="8" style="text-align:center;color:#aaa;padding:16px">Aucun soin</td></tr>'}
       ${soins.length?`<tr class="tr-tot"><td colspan="4">TOTAL</td><td>${fmt(tot)}</td><td>${fmt(soins.reduce((s,a)=>s+a.cnam,0))}</td><td>${fmt(soins.reduce((s,a)=>s+a.tm,0))}</td><td></td></tr>`:''}
     </table></div>
@@ -3238,7 +3238,7 @@ VIEW['cpt-caisse'] = (el) => {
           <td>${badge(t.statut)}</td>
           <td>${fmt(t.montant)} F</td>
           <td style="font-weight:700;color:${t.encaisse===0?'var(--fpm)':'var(--or)'}">${t.encaisse===0?'FPM':fmt(t.encaisse)+' F'}</td>
-          <td style="font-size:10px;color:var(--muted)">${t.agent_nom}</td>
+          <td style="font-size:10px;color:var(--muted)">${escHtml(t.agent_nom)}</td>
         </tr>`).join('')||'<tr><td colspan="7" style="text-align:center;color:#aaa;padding:16px">Aucune transaction</td></tr>'}
         ${tx.length?`<tr class="tr-tot"><td colspan="4">TOTAL</td><td>${fmt(tot)} F</td><td>${fmt(enc)} F</td><td></td></tr>`:''}
       </table></div>
@@ -3820,7 +3820,7 @@ function chefSearch(){
       ${patients.map(p=>{const cs=DB.get('consultations').filter(c=>c.patient_id===p.id);return `<tr>
         <td>${fmtD(p.created_at)}</td><td style="font-weight:700">${escHtml(p.nom)}</td><td>${p.genre||'—'}</td>
         <td>${badge(p.statut_simple||p.statut)}</td><td style="font-size:11px">${p.batiment||'—'}</td>
-        <td style="font-size:10px;color:var(--muted)">${p.agent_nom}</td><td style="text-align:center">${cs.length}</td>
+        <td style="font-size:10px;color:var(--muted)">${escHtml(p.agent_nom)}</td><td style="text-align:center">${cs.length}</td>
       </tr>`;}).join('')||'<tr><td colspan="7" style="text-align:center;color:#aaa">Aucun résultat</td></tr>'}
     </table></div>`;
 }
@@ -3851,7 +3851,7 @@ function openChefDossier(pid){
   const ph=DB.get('pharma_ventes').filter(x=>x.patient_nom===p.nom);
   const lab=DB.get('labo_actes').filter(x=>(x.patient_id&&x.patient_id===pid)||x.patient_nom===p.nom);
   const timeline=[];
-  cs.forEach(c=>timeline.push({id:c.id,dt:c.created_at,type:'CONSULT',txt:`${c.type} / ${c.agent_nom||'?'}`}));
+  cs.forEach(c=>timeline.push({id:c.id,dt:c.created_at,type:'CONSULT',txt:`${c.type} / ${escHtml(c.agent_nom||'?')}`}));
   cst.forEach(c=>timeline.push({id:c.id,dt:c.created_at,type:'CONST',txt:`T°${c.temperature||'—'} TA ${c.ta||'—'} SpO2 ${c.spo2||'—'} IMC ${c.imc||'—'}`}));
   soins.forEach(s=>timeline.push({id:s.id,dt:s.created_at,type:'SOINS',txt:`${(s.actes||[]).map(a=>a.nom).join(', ')||'Actes'} (${fmt(s.total||0)} F)`}));
   lab.forEach(l=>timeline.push({id:l.id,dt:l.created_at,type:'LABO',txt:`${(l.actes||[]).map(a=>a.code).join(', ')||'Actes labo'} (${fmt(l.total||0)} F)`}));
@@ -4233,22 +4233,37 @@ function updateSyncStatus(){
     bar.textContent='⚠ Hors connexion — Données en attente de synchronisation';
     return;
   }
+  const pending=SYNC_Q.length;
   if(LAST_SYNC_ERROR){
     dot.className='sync-dot off';
-    lbl.textContent='Erreur sync';
+    lbl.textContent=`Erreur sync${pending?` (${pending})`:''} — réessayer`;
     bar.style.display='block';
-    bar.textContent=`⚠ Erreur de synchronisation: ${LAST_SYNC_ERROR}`;
+    bar.textContent=`⚠ Erreur de synchronisation (${pending} en attente): ${LAST_SYNC_ERROR}. Cliquez sur l'état pour réessayer.`;
     return;
   }
-  if(IS_SYNCING||SYNC_Q.length>0){
+  if(IS_SYNCING){
     dot.className='sync-dot sync';
-    lbl.textContent='Sync...';
+    lbl.textContent=`Sync...${pending?` (${pending})`:''}`;
+    bar.style.display='none';
+    return;
+  }
+  if(pending>0){
+    dot.className='sync-dot sync';
+    lbl.textContent=`${pending} à synchroniser`;
     bar.style.display='none';
     return;
   }
   dot.className='sync-dot';
   lbl.textContent='En ligne';
   bar.style.display='none';
+}
+// Relance manuelle de la synchronisation (clic sur l'état dans la barre)
+function retrySync(){
+  if(!IS_ONLINE){alert('Hors connexion — réessayez une fois reconnecté.');return;}
+  if(!supa){alert('Synchronisation cloud non configurée.');return;}
+  LAST_SYNC_ERROR=null;
+  updateSyncStatus();
+  syncQueue();
 }
 function toCloudRow(op){
   return {

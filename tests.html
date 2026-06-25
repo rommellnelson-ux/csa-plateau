@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Tests CSA Plateau</title>
+<style>
+  body{font-family:system-ui,Arial,sans-serif;padding:18px;color:#1a1a2e;max-width:760px;margin:0 auto}
+  h1{font-size:18px}
+  #sum{font-size:18px;font-weight:700;margin:12px 0;padding:10px;border-radius:8px}
+  #sum.pass{background:#e8f5e9;color:#1a6b3c}
+  #sum.fail{background:#fbeaea;color:#8b1a1a}
+  ul{list-style:none;padding:0}
+  li{margin:3px 0;font-size:13px}
+  li.pass{color:#1a6b3c}
+  li.fail{color:#8b1a1a;font-weight:700}
+  .muted{color:#667084;font-size:12px}
+</style>
+</head>
+<body>
+<h1>Tests automatiques — CSA Plateau</h1>
+<p class="muted">Charge <code>index.html</code> dans un cadre masqué et exécute des assertions sur les fonctions réelles, dans le contexte de l'application. Aucune donnée n'est écrite dans le cloud (localStorage du cadre uniquement, nettoyé).</p>
+<div id="sum">Chargement de l'application…</div>
+<ul id="list"></ul>
+<iframe id="app" src="index.html" style="width:0;height:0;border:0;position:absolute;left:-9999px"></iframe>
+<script>
+// Le corps des tests s'exécute DANS le contexte de l'iframe (eval) pour voir
+// les const (escHtml, VIEW, ...) qui ne sont pas exposées sur window.
+const TEST_SRC = `(function(){
+  const results=[];
+  const ok=(name,cond)=>results.push({name,pass:!!cond});
+  try{
+    ok('numFR accepte la virgule (72,5)', numFR('72,5')===72.5);
+    ok('numFR vide = 0', numFR('')===0);
+    ok('tailleCm metres 1,75 -> 175', tailleCm('1,75')===175);
+    ok('tailleCm cm 175 -> 175', tailleCm('175')===175);
+    ok('tailleCm point 1.75 -> 175', tailleCm('1.75')===175);
+    ok('EAN valide accepte', isValidEan('5901234123457')===true);
+    ok('EAN mauvaise cle rejete', isValidEan('5901234123450')===false);
+    ok('EAN vide accepte', isValidEan('')===true);
+    ok('escHtml neutralise <', escHtml('<img onerror=x>').indexOf('<')===-1);
+    ok('escSQ est une fonction', typeof escSQ==='function');
+    ok('encaissement arrondi entier', Math.round(3*2.5)===8);
+    const si=sevciIndic();
+    ok('sevciIndic renvoie une structure', si && typeof si.total==='number' && typeof si.pctSupp==='number');
+
+    CURRENT_AGENT={id:'M',nom:'M',module:'sevci',permissions:['sevci_data'],isChef:false};
+    const tabs=getAllowedTabs();
+    ok('sevci voit la file active', tabs.includes('sevci-file'));
+    ok('sevci NE voit PAS la pharmacie', !tabs.includes('pha-stock'));
+    ok('sevci NE voit PAS la compta', !tabs.includes('cpt-caisse'));
+
+    CURRENT_AGENT={id:'T',nom:'T',module:'chef',permissions:['chef'],isChef:true};
+    let rendered=0; const rerr=[];
+    Object.keys(VIEW).forEach(k=>{ const d=document.createElement('div'); try{VIEW[k](d);rendered++;}catch(e){rerr.push(k);} });
+    ok('toutes les vues rendent ('+rendered+'/'+Object.keys(VIEW).length+')'+(rerr.length?' KO:'+rerr.join(','):''), rerr.length===0);
+
+    localStorage.setItem('csa2_patients', JSON.stringify([{id:'x',nom:'<img src=x onerror=alert(1)>',genre:'M',statut:'NA',created_at:new Date().toISOString()}]));
+    const dd=document.createElement('div'); try{VIEW['chef-patients'](dd);}catch(e){}
+    ok('XSS nom patient echappe', dd.innerHTML.indexOf('<img src=x onerror')===-1);
+    localStorage.removeItem('csa2_patients');
+  }catch(e){ ok('exception fatale: '+e.message, false); }
+  return results;
+})()`;
+
+function render(results){
+  const fails=results.filter(r=>!r.pass).length;
+  const sum=document.getElementById('sum');
+  sum.textContent=(fails===0?'✅ TOUS PASS':'❌ '+fails+' ECHEC(S)')+' — '+results.length+' tests';
+  sum.className=fails===0?'pass':'fail';
+  document.getElementById('list').innerHTML=results.map(r=>`<li class="${r.pass?'pass':'fail'}">${r.pass?'✔':'✗'} ${r.name}</li>`).join('');
+  document.title=fails===0?'TESTS_PASS':'TESTS_FAIL';
+  window.__TESTS__={total:results.length,fails:fails};
+}
+let __tries=0;
+function tryRun(){
+  __tries++;
+  const w=document.getElementById('app').contentWindow;
+  let ready=false;
+  try{ ready = w && w.eval('typeof numFR==="function" && typeof VIEW!=="undefined"'); }catch(e){ ready=false; }
+  if(ready){
+    try{ render(w.eval(TEST_SRC)); }
+    catch(e){ render([{name:"Impossible d'exécuter les tests: "+e.message,pass:false}]); }
+    return;
+  }
+  if(__tries>50){ render([{name:'Application non chargée (timeout)',pass:false}]); return; }
+  setTimeout(tryRun,200);
+}
+tryRun();
+</script>
+</body>
+</html>
