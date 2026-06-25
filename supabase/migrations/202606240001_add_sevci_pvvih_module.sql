@@ -30,6 +30,14 @@ alter table public.csa_profiles drop constraint if exists csa_profiles_module_ch
 alter table public.csa_profiles add constraint csa_profiles_module_check
   check (module in ('accueil','soins','labo','pharmacie','compta','chef','sevci'));
 
+-- Autoriser les permissions sevci (la contrainte d'origine ne les listait pas).
+alter table public.csa_profiles drop constraint if exists csa_profiles_permissions_check;
+alter table public.csa_profiles add constraint csa_profiles_permissions_check
+  check (
+    permissions <@ array['accueil','as','soins','labo','pharmacie','compta','chef','sevci_med','sevci_data','sevci_sup']::text[]
+    and cardinality(permissions) > 0
+  );
+
 -- MFA générique : vrai si la session courante est de niveau aal2.
 -- Les données PVVIH exigent une session MFA, comme le médecin-chef.
 create or replace function public.csa_has_aal2()
