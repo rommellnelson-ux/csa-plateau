@@ -120,6 +120,10 @@ grant execute on function public.csa_has_aal2() to authenticated;
 -- charges virales mettent à jour l'enregistrement). La policy UPDATE n'autorise
 -- sinon que patients/observations/pharma_*. On la recrée en ajoutant sevci_pvvih.
 -- (sevci_actions reste en insertion seule.)
+-- Particularité SEV-CI : édition INTER-AGENTS autorisée -> pour sevci_pvvih on
+-- n'exige PAS que le modificateur soit le créateur (tout agent sevci habilité
+-- peut corriger un dossier / saisir une CV). Les autres tables conservent la
+-- règle stricte « chacun ne modifie que ses propres lignes ».
 drop policy if exists "events_update_by_role" on public.csa_events;
 create policy "events_update_by_role"
 on public.csa_events
@@ -131,11 +135,16 @@ using (
 )
 with check (
   public.csa_can_write(table_name)
-  and table_name in ('patients','observations','pharma_stock','pharma_lots','pharma_inventaires','sevci_pvvih')
-  and created_by = auth.uid()
-  and coalesce(payload->>'agent_id', '') = (
-    select p.agent_code from public.csa_profiles p
-    where p.user_id = auth.uid() and p.active
+  and (
+    table_name = 'sevci_pvvih'
+    or (
+      table_name in ('patients','observations','pharma_stock','pharma_lots','pharma_inventaires')
+      and created_by = auth.uid()
+      and coalesce(payload->>'agent_id', '') = (
+        select p.agent_code from public.csa_profiles p
+        where p.user_id = auth.uid() and p.active
+      )
+    )
   )
 );
 

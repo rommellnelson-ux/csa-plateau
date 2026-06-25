@@ -1543,7 +1543,7 @@ function saveConsultation(){
         <div style="text-align:center;font-size:10px;color:#888;margin-bottom:6px">${now.toLocaleString('fr-FR')} | ${CURRENT_AGENT.nom}</div>
         <hr style="margin:4px 0">
         <div class="recu-line"><span>N° Dossier</span><span style="font-weight:700">${dossierAffiche}</span></div>
-        <div class="recu-line"><span>Patient</span><span><strong>${nom}</strong></span></div>
+        <div class="recu-line"><span>Patient</span><span><strong>${escHtml(nom)}</strong></span></div>
         <div class="recu-line"><span>Statut</span><span style="font-weight:700;color:${statut==='FPM'?'var(--fpm)':statut==='CMU'?'var(--cmu)':'var(--na)'}">${statut}</span></div>
         <div class="recu-line"><span>Facturation</span><span style="font-weight:700">${statutFacturation}</span></div>
         <div class="recu-line"><span>Type</span><span>${escHtml(type)}</span></div>
@@ -1752,7 +1752,7 @@ function saveSoins(){
         <div class="recu-title">SOINS INFIRMIERS — CSA PLATEAU</div>
         <div style="text-align:center;font-size:10px">${now.toLocaleString('fr-FR')} | ${CURRENT_AGENT.nom}</div>
         <hr style="margin:4px 0">
-        <div class="recu-line"><span>Patient</span><span><strong>${nom}</strong></span></div>
+        <div class="recu-line"><span>Patient</span><span><strong>${escHtml(nom)}</strong></span></div>
         <div class="recu-line"><span>Statut</span><span>${statut}</span></div>
         <div class="recu-line"><span>Facturation</span><span>${statutFacturation}</span></div>
         ${actes.map(a=>`<div class="recu-line"><span>${a.nom} ×${a.qte}</span><span>${fmt(a.montant)} F</span></div>`).join('')}
@@ -1967,7 +1967,7 @@ VIEW['soins-liste'] = (el) => {
     <div class="tw"><table>
       <tr><th>Heure</th><th>Patient</th><th>Statut</th><th>Actes</th><th>Total</th><th>CNAM</th><th>TM</th><th>Agent</th></tr>
       ${soins.map(s=>`<tr>
-        <td>${fmtT(s.created_at)}</td><td style="font-weight:700">${s.patient_nom}</td>
+        <td>${fmtT(s.created_at)}</td><td style="font-weight:700">${escHtml(s.patient_nom)}</td>
         <td>${badge(s.statut)}</td>
         <td style="font-size:10px">${s.actes.map(a=>a.nom).join(', ')}</td>
         <td>${fmt(s.total)} F</td>
@@ -2387,7 +2387,7 @@ VIEW['labo-resultats'] = (el) => {
     <div class="tw"><table>
       <tr><th>Heure</th><th>Patient</th><th>Statut</th><th>Actes</th><th>Total</th><th>CNAM</th><th>TM</th><th>Résultat</th><th>Tech.</th></tr>
       ${actes.map(a=>`<tr>
-        <td>${fmtT(a.created_at)}</td><td style="font-weight:700">${a.patient_nom}</td>
+        <td>${fmtT(a.created_at)}</td><td style="font-weight:700">${escHtml(a.patient_nom)}</td>
         <td>${badge(a.statut)}</td>
         <td style="font-size:10px">${a.actes.map(x=>x.code).join(', ')}</td>
         <td>${fmt(a.total)} F</td>
@@ -2412,7 +2412,7 @@ VIEW['labo-feuilles'] = (el) => {
     <div class="tw"><table>
       <tr><th>Date</th><th>Patient</th><th>Statut</th><th>Codes actes</th><th>Total</th><th>Part CNAM</th><th>TM</th></tr>
       ${actes.slice(0,60).map(a=>`<tr>
-        <td>${fmtD(a.created_at)}</td><td style="font-weight:700">${a.patient_nom}</td>
+        <td>${fmtD(a.created_at)}</td><td style="font-weight:700">${escHtml(a.patient_nom)}</td>
         <td>${badge(a.statut)}</td>
         <td style="font-size:10px">${a.actes.map(x=>x.code+' B'+x.cot).join(', ')}</td>
         <td>${fmt(a.total)} F</td>
@@ -2458,7 +2458,7 @@ VIEW['pha-vente'] = (el) => {
           ${stock.map(m=>`
             <div class="fr" style="padding:3px 0;border-bottom:1px solid #f5f5f5;align-items:flex-start">
               <div style="flex:1">
-                <div style="font-size:11px;font-weight:700">${m.nom}</div>
+                <div style="font-size:11px;font-weight:700">${escHtml(m.nom)}</div>
                 <div style="font-size:9px;color:#aaa">${escHtml(m.dci||'—')} | ${escHtml(m.dosage||'Non renseigné')} | ${escHtml(pharmaForm(m))} | ${escHtml(canonicalPharmaPack(m.conditionnement||m.unite))}</div>
                 <div style="font-size:9px;color:#aaa">EAN: ${escHtml(m.code_ean||'non renseigné')} | Stock: <span style="color:${m.catalogue_status==='A_INVENTORIER'?'var(--orang)':isOperationalStockAlert(m)?'var(--rouge)':'var(--vert)'};font-weight:700">${m.stock}</span></div>
                 <div style="font-size:9px;color:var(--muted)">FPM: ${fmt(m.px_cession)}F | CMU: ${m.cmu_eligible?fmt(pxCMU(m))+'F':'non éligible'} | Hors CMU: ${fmt(pxNA(m))}F</div>
@@ -2554,8 +2554,9 @@ function savePharmaVente(){
       if(idx>=0){
         const px=sf==='CMU'?(stock[idx].cmu_eligible?pxCMU(stock[idx]):pxNA(stock[idx])):sf==='NA'?pxNA(stock[idx]):(+stock[idx].px_cession||0);
         const allocations=consumeLots(stock[idx],lots,q);
-        items.push({id:i.dataset.id,nom:i.dataset.nom,qte:q,pu:px,montant:q*px,lots:allocations});
-        tot+=q*px;
+        const montant=Math.round(q*px); // encaissement entier (le prix unitaire peut être décimal)
+        items.push({id:i.dataset.id,nom:i.dataset.nom,qte:q,pu:px,montant,lots:allocations});
+        tot+=montant;
         stock[idx].stock=Math.max(0,stock[idx].stock-q);
       }
     }
@@ -2649,7 +2650,7 @@ VIEW['pha-stock'] = (el) => {
     <div class="kpi" style="border-left-color:${alertes.length?'var(--rouge)':'var(--vert)'}"><div class="kpi-ico">⚠️</div><div class="kpi-lbl">Alertes stock</div><div class="kpi-val" style="color:${alertes.length?'var(--rouge)':'var(--vert)'}">${alertes.length}</div></div>
   </div>
   ${(toInventory.length||toPrice.length)?`<div class="al al-info no-print"><strong>Initialisation du catalogue réel</strong>${toInventory.length} référence(s) restent à inventorier et ${toPrice.length} tarif(s) de cession restent à valider par le Médecin-Chef. Les anciennes quantités de démonstration ne sont pas utilisées.</div>`:''}
-  ${alertes.length?`<div class="al al-err no-print"><strong>⚠️ ${alertes.length} article(s) en alerte de stock :</strong> ${alertes.map(m=>`${m.nom} (${m.stock} restants, seuil ${m.seuil})`).join(' | ')}</div>`:''}
+  ${alertes.length?`<div class="al al-err no-print"><strong>⚠️ ${alertes.length} article(s) en alerte de stock :</strong> ${alertes.map(m=>`${escHtml(m.nom)} (${m.stock} restants, seuil ${m.seuil})`).join(' | ')}</div>`:''}
   <div class="card">
     <div class="card-title">Catalogue et état des stocks — Pharmacie</div>
     <div class="fr no-print" style="margin-bottom:10px">
@@ -3192,7 +3193,7 @@ VIEW['pha-tableau'] = (el) => {
     <div class="tw"><table>
       <tr><th>Heure</th><th>Patient</th><th>Statut</th><th>Médicaments</th><th>Total</th><th>CNAM</th><th>TM</th></tr>
       ${ventesToday.map(v=>`<tr>
-        <td>${fmtT(v.created_at)}</td><td style="font-weight:700">${v.patient_nom}</td>
+        <td>${fmtT(v.created_at)}</td><td style="font-weight:700">${escHtml(v.patient_nom)}</td>
         <td>${badge(v.statut)}</td>
         <td style="font-size:10px">${v.items.map(i=>i.nom+' ×'+i.qte).join(', ')}</td>
         <td>${fmt(v.total)} F</td>
@@ -3232,7 +3233,7 @@ VIEW['cpt-caisse'] = (el) => {
         <tr><th>Heure</th><th>Patient</th><th>Service</th><th>Statut</th><th>Montant</th><th>Encaissé</th><th>Agent</th></tr>
         ${tx.slice(0,25).map(t=>`<tr>
           <td>${fmtT(t.created_at)}</td>
-          <td style="font-size:11px;font-weight:700">${t.patient_nom}</td>
+          <td style="font-size:11px;font-weight:700">${escHtml(t.patient_nom)}</td>
           <td><span style="font-size:10px;background:#f0f4ff;color:var(--bleu);padding:1px 6px;border-radius:6px;font-weight:700">${t.service}</span></td>
           <td>${badge(t.statut)}</td>
           <td>${fmt(t.montant)} F</td>
@@ -3764,7 +3765,7 @@ VIEW['chef-alertes'] = (el) => {
       const pct=Math.min(100,m.seuil>0?Math.round(m.stock/m.seuil*100):100);
       const col=isOperationalStockAlert(m)?'#E24B4A':m.stock<=m.seuil*1.5?'#EF9F27':'#63992280';
       return `<div class="sk-row">
-        <div class="sk-name">${m.nom}</div>
+        <div class="sk-name">${escHtml(m.nom)}</div>
         <div class="sk-bw"><div class="sk-bar" style="width:${pct}%;background:${col}"></div></div>
         <div class="sk-qty" style="color:${col}">${m.stock} / seuil ${m.seuil}</div>
       </div>`;
@@ -3817,7 +3818,7 @@ function chefSearch(){
     <div class="tw"><table>
       <tr><th>Date</th><th>Nom</th><th>Genre</th><th>Statut</th><th>Bâtiment</th><th>Agent</th><th>Consultations</th></tr>
       ${patients.map(p=>{const cs=DB.get('consultations').filter(c=>c.patient_id===p.id);return `<tr>
-        <td>${fmtD(p.created_at)}</td><td style="font-weight:700">${p.nom}</td><td>${p.genre||'—'}</td>
+        <td>${fmtD(p.created_at)}</td><td style="font-weight:700">${escHtml(p.nom)}</td><td>${p.genre||'—'}</td>
         <td>${badge(p.statut_simple||p.statut)}</td><td style="font-size:11px">${p.batiment||'—'}</td>
         <td style="font-size:10px;color:var(--muted)">${p.agent_nom}</td><td style="text-align:center">${cs.length}</td>
       </tr>`;}).join('')||'<tr><td colspan="7" style="text-align:center;color:#aaa">Aucun résultat</td></tr>'}
@@ -4012,12 +4013,12 @@ VIEW['chef-prix'] = (el) => {
         <td><select id="forme-${m.id}" style="width:145px">${[pharmaForm(m),...PHARMA_FORMS].filter((v,i,a)=>a.indexOf(v)===i).map(v=>`<option ${pharmaForm(m)===v?'selected':''}>${escHtml(v)}</option>`).join('')}</select></td>
         <td><select id="pack-${m.id}" style="width:140px">${[canonicalPharmaPack(m.conditionnement||m.unite),...PHARMA_PACKS].filter((v,i,a)=>a.indexOf(v)===i).map(v=>`<option ${canonicalPharmaPack(m.conditionnement||m.unite)===v?'selected':''}>${escHtml(v)}</option>`).join('')}</select></td>
         <td><label style="display:flex;align-items:center;gap:4px"><input type="checkbox" id="cmu-${m.id}" ${m.cmu_eligible?'checked':''} onchange="toggleCmuPrice('${m.id}')"> Éligible</label></td>
-        <td><input type="number" id="px-a-${m.id}" value="${+m.px_achat||0}" min="0" style="width:85px" oninput="updatePriceMargins('${m.id}')"></td>
-        <td><input type="number" id="px-cession-${m.id}" value="${+m.px_cession||0}" min="0" style="width:85px" oninput="updatePriceMargins('${m.id}')"></td>
-        <td><input type="number" id="cmu-markup-${m.id}" value="${cmuMarkup(m)}" min="0" step="0.1" style="width:70px" ${m.cmu_eligible?'':'disabled'} oninput="updatePriceMargins('${m.id}')"> %</td>
+        <td><input type="text" inputmode="decimal" id="px-a-${m.id}" value="${+m.px_achat||0}" style="width:85px" oninput="updatePriceMargins('${m.id}')"></td>
+        <td><input type="text" inputmode="decimal" id="px-cession-${m.id}" value="${+m.px_cession||0}" style="width:85px" oninput="updatePriceMargins('${m.id}')"></td>
+        <td><input type="text" inputmode="decimal" id="cmu-markup-${m.id}" value="${cmuMarkup(m)}" style="width:70px" ${m.cmu_eligible?'':'disabled'} oninput="updatePriceMargins('${m.id}')"> %</td>
         <td><input type="number" id="px-cmu-${m.id}" value="${pxCMU(m)}" readonly style="width:85px;background:#f3f4f6"></td>
         <td id="margin-cmu-${m.id}" style="font-size:10px"></td>
-        <td><input type="number" id="px-na-${m.id}" value="${pxNA(m)}" min="0" style="width:85px" oninput="updatePriceMargins('${m.id}')"></td>
+        <td><input type="text" inputmode="decimal" id="px-na-${m.id}" value="${pxNA(m)}" style="width:85px" oninput="updatePriceMargins('${m.id}')"></td>
         <td id="margin-na-${m.id}" style="font-size:10px"></td>
         <td><input type="number" id="seuil-${m.id}" value="${m.seuil}" min="0" style="width:60px;padding:4px;border:1.5px solid var(--border);border-radius:6px"></td>
         <td><button class="btn btn-sm btn-success" onclick="savePrix('${m.id}')">Sauver</button></td>
@@ -4040,12 +4041,12 @@ function toggleCmuPrice(id){
   updatePriceMargins(id);
 }
 function updatePriceMargins(id){
-  const purchase=+document.getElementById('px-a-'+id)?.value||0;
+  const purchase=numFR(document.getElementById('px-a-'+id)?.value);
   const cmuEligible=document.getElementById('cmu-'+id)?.checked===true;
-  const cession=+document.getElementById('px-cession-'+id)?.value||0;
-  const markup=+document.getElementById('cmu-markup-'+id)?.value||0;
+  const cession=numFR(document.getElementById('px-cession-'+id)?.value);
+  const markup=numFR(document.getElementById('cmu-markup-'+id)?.value);
   const cmu=cmuEligible?Math.round(cession*(1+markup/100)):0;
-  const nonCmu=+document.getElementById('px-na-'+id)?.value||0;
+  const nonCmu=numFR(document.getElementById('px-na-'+id)?.value);
   const cmuInput=document.getElementById('px-cmu-'+id);
   if(cmuInput)cmuInput.value=cmu;
   const cmuMargin=productMargin(cmu,purchase);
@@ -4074,12 +4075,12 @@ function savePrix(id){
     stock[idx].forme=canonicalPharmaForm(document.getElementById('forme-'+id).value);
     stock[idx].conditionnement=canonicalPharmaPack(document.getElementById('pack-'+id).value);
     stock[idx].unite=stock[idx].conditionnement;
-    stock[idx].px_achat=+document.getElementById('px-a-'+id).value||0;
-    stock[idx].px_cession=+document.getElementById('px-cession-'+id).value||0;
+    stock[idx].px_achat=numFR(document.getElementById('px-a-'+id).value);
+    stock[idx].px_cession=numFR(document.getElementById('px-cession-'+id).value);
     stock[idx].cmu_eligible=document.getElementById('cmu-'+id).checked===true;
-    stock[idx].cmu_markup_pct=+document.getElementById('cmu-markup-'+id).value||0;
+    stock[idx].cmu_markup_pct=numFR(document.getElementById('cmu-markup-'+id).value);
     stock[idx].px_cmu=stock[idx].cmu_eligible?Math.round(stock[idx].px_cession*(1+stock[idx].cmu_markup_pct/100)):0;
-    stock[idx].px_na=+document.getElementById('px-na-'+id).value||0;
+    stock[idx].px_na=numFR(document.getElementById('px-na-'+id).value);
     stock[idx].seuil=+document.getElementById('seuil-'+id).value||0;
     stock[idx].price_status=stock[idx].px_na>0&&(!stock[idx].cmu_eligible||stock[idx].px_cmu>0)?'VALIDE':'A_VALIDER';
     DB.setStock(stock);
@@ -4111,10 +4112,10 @@ function saveAllPrix(){
     if(dosage) m.dosage=dosage.value.trim();
     if(forme) m.forme=canonicalPharmaForm(forme.value);
     if(pack){m.conditionnement=canonicalPharmaPack(pack.value);m.unite=m.conditionnement;}
-    if(acquisition) m.px_achat=+acquisition.value||0;
-    if(cession) m.px_cession=+cession.value||0;
+    if(acquisition) m.px_achat=numFR(acquisition.value);
+    if(cession) m.px_cession=numFR(cession.value);
     if(cmuEligible) m.cmu_eligible=cmuEligible.checked===true;
-    if(markup) m.cmu_markup_pct=+markup.value||0;
+    if(markup) m.cmu_markup_pct=numFR(markup.value);
     m.px_cmu=m.cmu_eligible?Math.round((+m.px_cession||0)*(1+cmuMarkup(m)/100)):0;
     if(pxna) m.px_na=+pxna.value||0;
     if(seuil) m.seuil=+seuil.value||0;
