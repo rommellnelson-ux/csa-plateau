@@ -266,6 +266,26 @@ body.compact #content[data-view="cpt-caisse"] .g2{gap:8px;}
 
 <script>
 // ════════════════════════════════════════════════════════
+// GARDE-FOU STOCKAGE : l'app a besoin du localStorage pour fonctionner et se
+// synchroniser. Certains navigateurs (Edge « Protection contre le suivi »,
+// Safari, mode privé) le bloquent. On le détecte et on prévient clairement.
+// ════════════════════════════════════════════════════════
+(function(){
+  try{ var k='__csa_test__'; localStorage.setItem(k,'1'); localStorage.removeItem(k); }
+  catch(e){
+    document.body.innerHTML =
+      '<div style="font-family:Segoe UI,Arial,sans-serif;max-width:560px;margin:48px auto;padding:24px;color:#1a1a2e">'
+      +'<h2 style="color:#8B1A1A;margin-bottom:8px">Stockage bloqué par le navigateur</h2>'
+      +'<p>Cette application a besoin du stockage local pour enregistrer les saisies et les synchroniser entre les postes. Votre navigateur le bloque actuellement (souvent la « Protection contre le suivi »).</p>'
+      +'<p style="font-weight:700;margin-top:12px">Solutions :</p>'
+      +'<ul style="line-height:1.7"><li>Ouvrez l\'application dans <strong>Google Chrome</strong>, ou</li>'
+      +'<li>Dans Edge : cliquez sur l\'icône à gauche de l\'adresse → <strong>Protection contre le suivi</strong> → <strong>désactivez-la pour ce site</strong>, puis rechargez la page.</li>'
+      +'<li>Évitez le mode navigation privée.</li></ul></div>';
+    throw new Error('localStorage indisponible — message affiché à l\'utilisateur.');
+  }
+})();
+
+// ════════════════════════════════════════════════════════
 // CONFIG SUPABASE
 // ════════════════════════════════════════════════════════
 const SUPABASE_URL = 'https://wsnehnempnexzxzuklbv.supabase.co';
@@ -4380,8 +4400,13 @@ async function pullFromCloud(){
     updateSyncStatus();
   }
 }
-window.addEventListener('online',()=>{IS_ONLINE=true;updateSyncStatus();syncQueue();});
+window.addEventListener('online',()=>{IS_ONLINE=true;updateSyncStatus();syncNow();});
 window.addEventListener('offline',()=>{IS_ONLINE=false;updateSyncStatus();});
+// Synchro immédiate quand l'utilisateur ouvre/revient sur l'app (essentiel sur
+// téléphone où les minuteries sont ralenties en arrière-plan).
+function syncNow(){ if(IS_ONLINE&&supa&&CURRENT_AGENT){ pullFromCloud(); syncQueue(); } }
+document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible') syncNow(); });
+window.addEventListener('focus', syncNow);
 
 // ════════════════════════════════════════════════════════
 // HORLOGE
