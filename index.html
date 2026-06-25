@@ -2054,7 +2054,7 @@ VIEW['sevci-file'] = (el) => {
   </div>
   <div class="card"><div class="card-title">File active PVVIH (${list.length})</div>
     <div class="tw"><table>
-      <tr><th>Dossier</th><th>Catégorie</th><th>Sexe</th><th>Régime ARV</th><th>Dernière CV</th><th>Statut</th><th>IVSA</th><th>Agent</th></tr>
+      <tr><th>Dossier</th><th>Catégorie</th><th>Sexe</th><th>Régime ARV</th><th>Dernière CV</th><th>Statut</th><th>IVSA</th><th>Agent</th><th>Actions</th></tr>
       ${list.map(p=>`<tr>
         <td style="font-weight:700">${escHtml(p.num_dossier||'—')}</td>
         <td>${escHtml(p.categorie||'—')}</td>
@@ -2064,7 +2064,8 @@ VIEW['sevci-file'] = (el) => {
         <td>${badge(p.iit_status==='actif'?'OK':(p.iit_status==='interrompu'?'ERR':'WARN'))} <span style="font-size:10px">${escHtml(p.iit_status||'')}</span></td>
         <td style="font-size:10px">${escHtml(p.ivsa_stade||'')}</td>
         <td style="font-size:10px;color:var(--muted)">${escHtml(p.agent_nom||'')}</td>
-      </tr>`).join('')||'<tr><td colspan="8" style="text-align:center;color:#aaa;padding:16px">Aucun dossier</td></tr>'}
+        <td style="white-space:nowrap"><button class="btn btn-ghost btn-sm" onclick="sevciEditFile('${p.id}')">Éditer</button> <button class="btn btn-ghost btn-sm" onclick="sevciCvHistory('${p.id}')">Hist. CV</button></td>
+      </tr>`).join('')||'<tr><td colspan="9" style="text-align:center;color:#aaa;padding:16px">Aucun dossier</td></tr>'}
     </table></div>
   </div>`;
 };
@@ -2084,6 +2085,60 @@ function sevciSaveFile(){
   logAudit('SEVCI_FILE_ADD',{dossier});
   showView('sevci-file');
 }
+function sevciGet(id){ return DB.get('sevci_pvvih').find(p=>p.id===id); }
+function sevciRender(html){
+  const c=document.getElementById('content'); c.innerHTML='';
+  const el=document.createElement('div'); c.appendChild(el); el.innerHTML=html;
+}
+function sevciEditFile(id){
+  const p=sevciGet(id); if(!p){alert('Dossier introuvable');return;}
+  const sel=(opts,val)=>opts.map(o=>`<option${o===val?' selected':''}>${o}</option>`).join('');
+  sevciRender(`
+  <div class="card"><div class="card-title">Éditer le dossier ${escHtml(p.num_dossier||'')}</div>
+    <div class="fs">
+      <div class="fr"><label>N° dossier</label><input value="${escHtml(p.num_dossier||'')}" disabled style="flex:1;background:#f0f0f0"></div>
+      <div class="fr"><label>Catégorie</label><select id="ed-cat">${sel(['Militaire','Civil'],p.categorie)}</select></div>
+      <div class="fr"><label>Sexe</label><select id="ed-sexe">${sel(['F','M'],p.sexe)}</select></div>
+      <div class="fr"><label>Régime ARV</label><select id="ed-arv">${sel(SEVCI_ARV,p.regime_arv)}</select></div>
+      <div class="fr"><label>CD4 initial</label><input type="number" id="ed-cd4" value="${p.cd4_initial!=null?p.cd4_initial:''}"></div>
+      <div class="fr"><label>Statut traitement</label><select id="ed-iit">${sel(SEVCI_IIT,p.iit_status)}</select></div>
+      <div class="fr"><label>Stade IVSA</label><select id="ed-ivsa">${sel(SEVCI_IVSA,p.ivsa_stade)}</select></div>
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="sevciSaveEdit('${id}')">Enregistrer les modifications</button>
+        <button class="btn btn-ghost" onclick="showView('sevci-file')">Annuler</button>
+      </div>
+    </div>
+  </div>`);
+}
+function sevciSaveEdit(id){
+  const ok=sevciUpdateFile(id,{
+    categorie:document.getElementById('ed-cat').value,
+    sexe:document.getElementById('ed-sexe').value,
+    regime_arv:document.getElementById('ed-arv').value,
+    cd4_initial:+document.getElementById('ed-cd4').value||null,
+    iit_status:document.getElementById('ed-iit').value,
+    ivsa_stade:document.getElementById('ed-ivsa').value
+  });
+  if(ok) logAudit('SEVCI_FILE_EDIT',{id});
+  showView('sevci-file');
+}
+function sevciCvHistory(id){
+  const p=sevciGet(id); if(!p){alert('Dossier introuvable');return;}
+  const hist=Array.isArray(p.cv_history)?p.cv_history:[];
+  sevciRender(`
+  <div class="card"><div class="card-title">Historique des charges virales — ${escHtml(p.num_dossier||'')}</div>
+    <div class="tw"><table>
+      <tr><th>Date</th><th>Résultat (cp/mL)</th><th>Suppression</th><th>Agent</th></tr>
+      ${hist.map(h=>`<tr>
+        <td>${escHtml(h.date||'—')}</td>
+        <td class="num">${escHtml(String(h.val))}</td>
+        <td>${(+h.val<1000)?badge('OK')+' <span style="font-size:10px">supprimée</span>':badge('ERR')+' <span style="font-size:10px">non supprimée</span>'}</td>
+        <td style="font-size:10px;color:var(--muted)">${escHtml(h.agent||'')}</td>
+      </tr>`).join('')||'<tr><td colspan="4" style="text-align:center;color:#aaa;padding:16px">Aucune charge virale enregistrée</td></tr>'}
+    </table></div>
+    <div class="btn-row" style="margin-top:10px"><button class="btn btn-ghost" onclick="showView('sevci-file')">Retour</button></div>
+  </div>`);
+}
 
 VIEW['sevci-cv'] = (el) => {
   const list=DB.get('sevci_pvvih');
@@ -2102,9 +2157,12 @@ function sevciSaveCV(){
   const id=document.getElementById('cv-pid').value;
   const val=+document.getElementById('cv-val').value;
   const date=document.getElementById('cv-date').value;
-  if(!id||!val){alert('Patient et résultat requis');return;}
+  if(!id||!val){alert('Dossier et résultat requis');return;}
   const supp=val<1000;
-  const upd={charge_virale_val:val,charge_virale_date:date};
+  const rec=sevciGet(id);
+  const hist=Array.isArray(rec&&rec.cv_history)?rec.cv_history.slice():[];
+  hist.unshift({date,val,agent:CURRENT_AGENT&&CURRENT_AGENT.nom||''});
+  const upd={charge_virale_val:val,charge_virale_date:date,cv_history:hist};
   if(supp) upd.cv_supprimee_date=date;
   sevciUpdateFile(id,upd);
   logAudit('SEVCI_CV_ADD',{patient:id,val});
