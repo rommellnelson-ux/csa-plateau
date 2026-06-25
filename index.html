@@ -1061,10 +1061,15 @@ function printSection(id){
   w.document.close();
 }
 
+// Saisie numérique tolérante : accepte la virgule décimale (pavé numérique FR)
+function numFR(v){ return parseFloat(String(v==null?'':v).replace(',','.').trim())||0; }
+// Taille : accepte cm (175) ou mètres (1,75 / 1.75) -> renvoie en cm
+function tailleCm(v){ let t=numFR(v); if(t>0&&t<3) t=Math.round(t*100); return t; }
+
 // IMC auto
 function calcIMC(){
-  const p=parseFloat(document.getElementById('const-poids')?.value)||0;
-  const t=parseFloat(document.getElementById('const-taille')?.value)/100||0;
+  const p=numFR(document.getElementById('const-poids')?.value);
+  const t=tailleCm(document.getElementById('const-taille')?.value)/100||0;
   const el=document.getElementById('imc-display');
   if(!el||p<=0||t<=0){if(el)el.innerHTML='—';return;}
   const imc=p/(t*t);
@@ -1253,8 +1258,8 @@ VIEW['acc-constantes'] = (el) => {
         <div class="al al-info"><strong id="cs-pnom-lbl"></strong></div>
         <div class="fs">
           <div class="fs-title">Anthropométrie</div>
-          <div class="fr"><label>Poids (kg)</label><input type="number" id="const-poids" step="0.1" min="1" placeholder="Ex: 72.5" oninput="calcIMC()"></div>
-          <div class="fr"><label>Taille (cm)</label><input type="number" id="const-taille" step="0.5" min="50" placeholder="Ex: 175" oninput="calcIMC()"></div>
+          <div class="fr"><label>Poids (kg)</label><input type="text" inputmode="decimal" id="const-poids" placeholder="Ex: 72,5" oninput="calcIMC()"></div>
+          <div class="fr"><label>Taille</label><input type="text" inputmode="decimal" id="const-taille" placeholder="Ex: 175 (cm) ou 1,75 (m)" oninput="calcIMC()"></div>
           <div class="fr"><label>IMC calculé</label><div id="imc-display" style="flex:1;font-size:13px">—</div></div>
         </div>
         <div class="fs">
@@ -1262,12 +1267,12 @@ VIEW['acc-constantes'] = (el) => {
           <div class="fr"><label>Tension artérielle (mmHg)</label>
             <input type="text" id="const-ta" placeholder="Ex: 130/85 mmHg" style="flex:1"></div>
           <div class="fr"><label>Température (°C)</label>
-            <input type="number" id="const-temp" step="0.1" min="34" max="43" placeholder="Ex: 37.5" oninput="alertTemp()"></div>
+            <input type="text" inputmode="decimal" id="const-temp" placeholder="Ex: 37,5" oninput="alertTemp()"></div>
           <div id="temp-alert"></div>
           <div class="fr"><label>Pouls (bpm)</label>
-            <input type="number" id="const-pouls" min="30" max="250" placeholder="Ex: 78"></div>
+            <input type="text" inputmode="numeric" id="const-pouls" placeholder="Ex: 78"></div>
           <div class="fr"><label>SpO2 (%)</label>
-            <input type="number" id="const-spo2" min="50" max="100" placeholder="Ex: 98"></div>
+            <input type="text" inputmode="numeric" id="const-spo2" placeholder="Ex: 98"></div>
           <div class="fr"><label>Motif de consultation</label>
             <textarea id="const-motif" placeholder="Ex: Fièvre depuis 3 jours, céphalées..."></textarea></div>
         </div>
@@ -1304,7 +1309,7 @@ function selectPatientCS(id,nom,statut){
 }
 
 function alertTemp(){
-  const t=parseFloat(document.getElementById('const-temp')?.value)||0;
+  const t=numFR(document.getElementById('const-temp')?.value);
   const el=document.getElementById('temp-alert');
   if(!el)return;
   if(t>=40) el.innerHTML='<div class="al al-err">⚠️ Hyperthermie sévère (≥40°C) — Signaler immédiatement au médecin</div>';
@@ -1317,11 +1322,11 @@ function saveConstantes(){
   const pid=document.getElementById('cs-pid').value;
   const nom=document.getElementById('cs-pnom').value;
   if(!pid){alert('Sélectionnez un patient');return;}
-  const poids=parseFloat(document.getElementById('const-poids').value)||0;
-  const taille=parseFloat(document.getElementById('const-taille').value)||0;
-  const temperature=parseFloat(document.getElementById('const-temp').value)||0;
-  const pouls=parseFloat(document.getElementById('const-pouls').value)||0;
-  const spo2=parseFloat(document.getElementById('const-spo2').value)||0;
+  const poids=numFR(document.getElementById('const-poids').value);
+  const taille=tailleCm(document.getElementById('const-taille').value);
+  const temperature=numFR(document.getElementById('const-temp').value);
+  const pouls=numFR(document.getElementById('const-pouls').value);
+  const spo2=numFR(document.getElementById('const-spo2').value);
   const taValue=document.getElementById('const-ta').value.trim();
   if(poids&&(poids<1||poids>400)){alert('Poids invalide (1 à 400 kg).');return;}
   if(taille&&(taille<30||taille>250)){alert('Taille invalide (30 à 250 cm).');return;}
