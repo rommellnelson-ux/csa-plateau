@@ -116,6 +116,29 @@ $$;
 revoke all on function public.csa_has_aal2() from public;
 grant execute on function public.csa_has_aal2() to authenticated;
 
+-- sevci_pvvih doit être modifiable (édition de dossier + enregistrement des
+-- charges virales mettent à jour l'enregistrement). La policy UPDATE n'autorise
+-- sinon que patients/observations/pharma_*. On la recrée en ajoutant sevci_pvvih.
+-- (sevci_actions reste en insertion seule.)
+drop policy if exists "events_update_by_role" on public.csa_events;
+create policy "events_update_by_role"
+on public.csa_events
+for update
+to authenticated
+using (
+  public.csa_can_write(table_name)
+  and table_name in ('patients','observations','pharma_stock','pharma_lots','pharma_inventaires','sevci_pvvih')
+)
+with check (
+  public.csa_can_write(table_name)
+  and table_name in ('patients','observations','pharma_stock','pharma_lots','pharma_inventaires','sevci_pvvih')
+  and created_by = auth.uid()
+  and coalesce(payload->>'agent_id', '') = (
+    select p.agent_code from public.csa_profiles p
+    where p.user_id = auth.uid() and p.active
+  )
+);
+
 commit;
 
 -- ════════════════════════════════════════════════════════
