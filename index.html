@@ -4477,6 +4477,38 @@ if(supa){
 }
 setInterval(syncQueue,30000);
 setInterval(pullFromCloud,60000);
+
+// ════════════════════════════════════════════════════════
+// MISE À JOUR AUTOMATIQUE (PWA) — sans manip technique pour l'utilisateur.
+// Grâce au service worker « réseau d'abord », chaque ouverture de l'app charge
+// déjà la dernière version. Si une nouvelle version arrive pendant que l'app
+// reste ouverte, on affiche un simple bouton « Mettre à jour ».
+// ════════════════════════════════════════════════════════
+function showUpdateBanner(){
+  if(document.getElementById('csa-update-banner')) return;
+  const b=document.createElement('div');
+  b.id='csa-update-banner';
+  b.style.cssText='position:fixed;left:0;right:0;bottom:0;background:#1A6B3C;color:#fff;padding:12px 14px;text-align:center;z-index:2000;font-size:14px;font-weight:600;box-shadow:0 -2px 10px rgba(0,0,0,.25)';
+  b.innerHTML='Une nouvelle version est disponible. <button id="csa-update-btn" style="margin-left:10px;background:#fff;color:#1A6B3C;border:none;border-radius:6px;padding:7px 16px;font-weight:700;cursor:pointer">Mettre à jour</button>';
+  document.body.appendChild(b);
+  document.getElementById('csa-update-btn').onclick=()=>location.reload();
+}
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('sw.js').then(reg=>{
+    setInterval(()=>{ try{reg.update();}catch(e){} }, 30*60*1000);
+    if(reg.waiting && navigator.serviceWorker.controller) showUpdateBanner();
+    reg.addEventListener('updatefound',()=>{
+      const nw=reg.installing;
+      if(nw) nw.addEventListener('statechange',()=>{
+        if(nw.state==='installed' && navigator.serviceWorker.controller) showUpdateBanner();
+      });
+    });
+  }).catch(()=>{});
+  let __reloaded=false;
+  navigator.serviceWorker.addEventListener('controllerchange',()=>{
+    if(__reloaded) return; __reloaded=true; showUpdateBanner();
+  });
+}
 </script>
 </body>
 </html>
