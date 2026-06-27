@@ -1406,8 +1406,15 @@ VIEW['acc-consultation'] = (el) => {
     <div class="card">
       ${renderCriticalBanner('Consultation')}
       <div class="card-title">Enregistrement de consultation</div>
-      <div class="sb"><input type="text" id="cc-search" placeholder="Rechercher patient..." oninput="searchCC()"></div>
+      <div class="sb"><input type="text" id="cc-search" placeholder="Rechercher un patient existant..." oninput="searchCC()"></div>
       <div id="cc-results" style="max-height:130px;overflow-y:auto"></div>
+      <div class="fr" style="margin-top:6px"><label><input type="checkbox" id="cc-new-toggle" onchange="toggleCcNew()"> Nouveau patient (non enregistré à l'accueil)</label></div>
+      <div id="cc-new-wrap" style="display:none;border:1px dashed var(--vert);border-radius:8px;padding:10px;margin-bottom:8px;background:#f3fbf5">
+        <div class="fr"><label>Nom du patient</label><input type="text" id="cc-new-nom" placeholder="Nom et prénoms"></div>
+        <div class="fr"><label>Sexe</label><select id="cc-new-genre"><option>M</option><option>F</option></select></div>
+        <div class="fr"><label>Statut</label><select id="cc-new-statut"><option value="NA">NA (non assuré)</option><option value="FPM">FPM</option><option value="CMU">CMU</option></select></div>
+        <button class="btn btn-primary btn-sm" onclick="ccCreatePatient()">Créer et sélectionner</button>
+      </div>
       <input type="hidden" id="cc-pid"><input type="hidden" id="cc-pnom"><input type="hidden" id="cc-pstatut"><input type="hidden" id="cc-pdroits">
       <div id="cc-selected" style="display:none">
         <div class="al al-info"><strong id="cc-pnom-lbl"></strong></div>
@@ -1478,6 +1485,29 @@ function selectCC(id,nom,statut){
   document.getElementById('cc-search').value='';
   document.getElementById('cc-results').innerHTML='';
   updateConsultTarif();
+}
+function toggleCcNew(){
+  const on=document.getElementById('cc-new-toggle')?.checked;
+  const w=document.getElementById('cc-new-wrap'); if(w) w.style.display=on?'block':'none';
+}
+// Création d'un patient directement depuis la Consultation (comme l'accueil),
+// puis sélection automatique pour enchaîner la consultation. Synchronisé partout.
+function ccCreatePatient(){
+  const nom=document.getElementById('cc-new-nom').value.trim();
+  if(!nom){alert('Le nom du patient est obligatoire');return;}
+  const statut=document.getElementById('cc-new-statut').value;
+  const statutSimple=statut.startsWith('FPM')?'FPM':statut;
+  const p=DB.push('patients',{
+    nom, ddn:'', genre:document.getElementById('cc-new-genre').value,
+    tel:'', adresse:'', statut, statut_simple:statutSimple,
+    droits_verifies:'1', cmu_disponible:'0', antecedents:'',
+    dossier_no:generatePatientDossier(),
+    batiment:CURRENT_AGENT.bldg||'SOUS-PREFECTURE', date:today(), cree_par:'consultation'
+  });
+  logAudit('PATIENT_CREATE',{patient_id:p.id,dossier_no:p.dossier_no,nom:p.nom,statut:statutSimple,via:'consultation'});
+  document.getElementById('cc-new-nom').value='';
+  const tog=document.getElementById('cc-new-toggle'); if(tog) tog.checked=false; toggleCcNew();
+  selectCC(p.id, p.nom, p.statut_simple||p.statut);
 }
 function updateConsultTarif(){
   const type=document.getElementById('cc-type')?.value;
