@@ -1639,7 +1639,14 @@ VIEW['soins-actes'] = (el) => {
       <div class="fr" id="si-direct-motif-wrap" style="display:none">
         <label>Motif d'entrée directe (obligatoire)</label><input type="text" id="si-direct-motif" placeholder="Ex: soin pansement externe, urgence mineure...">
       </div>
-      <div class="sb"><input type="text" id="si-search" placeholder="Rechercher patient..." oninput="searchSI()"></div>
+      <div id="si-direct-new-wrap" style="display:none;border:1px dashed var(--bleu);border-radius:8px;padding:10px;margin-bottom:8px;background:#f4f8ff">
+        <div style="font-size:11px;font-weight:700;color:var(--bleu);margin-bottom:6px">Patient non enregistré à l'accueil ? Créez-le ici :</div>
+        <div class="fr"><label>Nom du patient</label><input type="text" id="si-new-nom" placeholder="Nom et prénoms"></div>
+        <div class="fr"><label>Sexe</label><select id="si-new-genre"><option>M</option><option>F</option></select></div>
+        <div class="fr"><label>Statut</label><select id="si-new-statut"><option value="NA">NA (non assuré)</option><option value="FPM">FPM</option><option value="CMU">CMU</option></select></div>
+        <button class="btn btn-primary btn-sm" onclick="siCreateDirectPatient()">Créer et sélectionner</button>
+      </div>
+      <div class="sb"><input type="text" id="si-search" placeholder="Rechercher un patient existant..." oninput="searchSI()"></div>
       <div id="si-results" style="max-height:100px;overflow-y:auto"></div>
       <input type="hidden" id="si-pid"><input type="hidden" id="si-pnom"><input type="hidden" id="si-pstatut">
       <div id="si-form" style="display:none">
@@ -1707,8 +1714,30 @@ function toggleSiDirect(){
   const isDirect=document.getElementById('si-direct')?.checked;
   const wrap=document.getElementById('si-direct-motif-wrap');
   if(wrap) wrap.style.display=isDirect?'flex':'none';
+  const nw=document.getElementById('si-direct-new-wrap');
+  if(nw) nw.style.display=isDirect?'block':'none';
   document.getElementById('si-results').innerHTML='';
   document.getElementById('si-search').value='';
+}
+// Création d'un patient directement depuis l'interface infirmier (entrée directe),
+// exactement comme à l'accueil. Le patient est enregistré et synchronisé partout.
+function siCreateDirectPatient(){
+  const nom=document.getElementById('si-new-nom').value.trim();
+  if(!nom){alert('Le nom du patient est obligatoire');return;}
+  const statut=document.getElementById('si-new-statut').value;
+  const statutSimple=statut.startsWith('FPM')?'FPM':statut;
+  const p=DB.push('patients',{
+    nom, ddn:'', genre:document.getElementById('si-new-genre').value,
+    tel:'', adresse:'',
+    statut, statut_simple:statutSimple,
+    droits_verifies:'1', cmu_disponible:'0', antecedents:'',
+    dossier_no:generatePatientDossier(),
+    batiment:CURRENT_AGENT.bldg||'SOUS-PREFECTURE', date:today(),
+    cree_par:'soins'
+  });
+  logAudit('PATIENT_CREATE',{patient_id:p.id,dossier_no:p.dossier_no,nom:p.nom,statut:statutSimple,via:'soins-entree-directe'});
+  document.getElementById('si-new-nom').value='';
+  selectSI(p.id, p.nom, p.statut_simple||p.statut);
 }
 function selectSI(id,nom,statut){
   document.getElementById('si-pid').value=id;
