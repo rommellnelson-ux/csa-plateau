@@ -677,9 +677,16 @@ function recordStockMovement(data){
     date:today()
   });
 }
+// Identifiant unique d'événement client (UUID v4) pour la synchro idempotente.
+function newClientEventId(){
+  try{ if(crypto && crypto.randomUUID) return crypto.randomUUID(); }catch(e){}
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{
+    const r=Math.random()*16|0; return (c==='x'?r:(r&0x3|0x8)).toString(16);
+  });
+}
 function queueSync(table,item){
   if(!SYNC_TABLES.includes(table)||!item?.id) return;
-  const op={table,item:{...item,updated_at:new Date().toISOString(),synced:false}};
+  const op={table,item:{...item,updated_at:new Date().toISOString(),synced:false,client_event_id:newClientEventId()}};
   const key=table+':'+item.id;
   SYNC_Q=SYNC_Q.filter(existing=>(existing.table+':'+existing.item?.id)!==key);
   SYNC_Q.push(op);
@@ -4118,6 +4125,7 @@ function toCloudRow(op){
     event_key:`${op.table}:${op.item.id||Date.now()}`,
     table_name:op.table,
     item_id:String(op.item.id||''),
+    client_event_id:op.item.client_event_id||null,
     payload:{...op.item,synced:true},
     created_at:op.item.created_at||new Date().toISOString(),
     agent_id:op.item.agent_id||CURRENT_AGENT?.id||null,
@@ -4138,6 +4146,8 @@ async function pushCloudRow(row){
 
   const msg = String(upsertRes.error.message||'');
   const code = String(upsertRes.error.code||'');
+  // Doublon (event_key ou client_event_id déjà enregistré) -> déjà synchronisé.
+  if(code==='23505') return {ok:true,fallback:'duplicate_ignored'};
   const noConflictTarget =
     code==='42P10' ||
     /no unique|no unique or exclusion|on conflict/i.test(msg);
