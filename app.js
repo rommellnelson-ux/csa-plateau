@@ -4137,32 +4137,23 @@ function toCloudRow(op){
   };
 }
 async function pushCloudRow(row, baseVersion){
-  // (Anti-écrasement Phase 1.3b désactivé temporairement : dépendait des colonnes
-  //  client_event_id/entity_version non disponibles dans le cache de schéma.)
-  if(row.table_name==='pharma_mouvements'){
-    const immutableInsert=await supa.from(CLOUD_TABLE).insert(row);
-    if(!immutableInsert.error||String(immutableInsert.error.code||'')==='23505'){
-      return {ok:true,fallback:immutableInsert.error?'duplicate_ignored':'immutable_insert'};
-    }
-    return {ok:false,error:immutableInsert.error};
-  }
-  const upsertRes = await supa.from(CLOUD_TABLE).upsert(row,{onConflict:'event_key'});
-  if(!upsertRes.error) return {ok:true};
-
-  const msg = String(upsertRes.error.message||'');
-  const code = String(upsertRes.error.code||'');
-  // Doublon (event_key ou client_event_id déjà enregistré) -> déjà synchronisé.
-  if(code==='23505') return {ok:true,fallback:'duplicate_ignored'};
-  const noConflictTarget =
-    code==='42P10' ||
-    /no unique|no unique or exclusion|on conflict/i.test(msg);
-
-  if(noConflictTarget){
-    const ins = await supa.from(CLOUD_TABLE).insert(row);
-    if(!ins.error) return {ok:true,fallback:'insert'};
+  // Tables EN INSERTION SEULE (audit_logs, consultations, soins, constantes,
+  // labo_actes, transactions, clotures, pharma_ventes, pharma_mouvements...) :
+  // INSERT simple. Un doublon (même event_key déjà enregistré) = déjà
+  // synchronisé -> succès. On n'essaie JAMAIS d'UPDATE ces tables (la policy
+  // UPDATE les interdit : 42501). C'est ce qui bloquait la file.
+  if(!MUTABLE_TABLES.includes(row.table_name)){
+    const ins=await supa.from(CLOUD_TABLE).insert(row);
+    if(!ins.error) return {ok:true};
     if(String(ins.error.code||'')==='23505') return {ok:true,fallback:'duplicate_ignored'};
     return {ok:false,error:ins.error};
   }
+  // Tables MODIFIABLES (patients, observations, pharma_stock/lots/inventaires,
+  // sevci_pvvih) : upsert (la policy UPDATE l'autorise).
+  const upsertRes = await supa.from(CLOUD_TABLE).upsert(row,{onConflict:'event_key'});
+  if(!upsertRes.error) return {ok:true};
+  const code = String(upsertRes.error.code||'');
+  if(code==='23505') return {ok:true,fallback:'duplicate_ignored'};
   return {ok:false,error:upsertRes.error};
 }
 async function syncQueue(){
