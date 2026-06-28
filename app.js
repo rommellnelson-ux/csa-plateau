@@ -4129,7 +4129,6 @@ function toCloudRow(op){
     event_key:`${op.table}:${op.item.id||Date.now()}`,
     table_name:op.table,
     item_id:String(op.item.id||''),
-    client_event_id:op.item.client_event_id||null,
     payload:{...op.item,synced:true},
     created_at:op.item.created_at||new Date().toISOString(),
     agent_id:op.item.agent_id||CURRENT_AGENT?.id||null,
@@ -4138,14 +4137,8 @@ function toCloudRow(op){
   };
 }
 async function pushCloudRow(row, baseVersion){
-  // Anti-écrasement (tables modifiables) : si le serveur a une version plus
-  // récente que celle éditée par l'agent, on NE PAS écrase -> conflit.
-  if(MUTABLE_TABLES.includes(row.table_name) && baseVersion!=null){
-    const cur=await supa.from(CLOUD_TABLE).select('entity_version,payload').eq('event_key',row.event_key).maybeSingle();
-    if(cur.data && cur.data.entity_version!=null && Number(cur.data.entity_version)!==Number(baseVersion)){
-      return {ok:false,conflict:true,serverVersion:cur.data.entity_version,serverPayload:cur.data.payload};
-    }
-  }
+  // (Anti-écrasement Phase 1.3b désactivé temporairement : dépendait des colonnes
+  //  client_event_id/entity_version non disponibles dans le cache de schéma.)
   if(row.table_name==='pharma_mouvements'){
     const immutableInsert=await supa.from(CLOUD_TABLE).insert(row);
     if(!immutableInsert.error||String(immutableInsert.error.code||'')==='23505'){
@@ -4276,7 +4269,7 @@ async function pullFromCloud(){
   try{
     const {data,error}=await supa
       .from(CLOUD_TABLE)
-      .select('table_name,item_id,payload,created_at,updated_at,entity_version')
+      .select('table_name,item_id,payload,created_at,updated_at')
       .order('updated_at',{ascending:false})
       .limit(20000);
     if(error||!Array.isArray(data)) return;
@@ -4288,7 +4281,7 @@ async function pullFromCloud(){
         const id=String(r.item_id||r.payload.id||'');
         if(!id) return;
         if(!remoteById.has(id) || String(r.updated_at||'')>String(remoteById.get(id).updated_at||'')){
-          remoteById.set(id,{payload:{...r.payload,synced:true,entity_version:r.entity_version},updated_at:r.updated_at});
+          remoteById.set(id,{payload:{...r.payload,synced:true},updated_at:r.updated_at});
         }
       });
       const localRows=DB.get(table);
