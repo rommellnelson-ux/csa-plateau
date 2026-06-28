@@ -4198,7 +4198,7 @@ async function pullFromCloud(){
   try{
     const {data,error}=await supa
       .from(CLOUD_TABLE)
-      .select('table_name,item_id,payload,created_at,updated_at')
+      .select('table_name,item_id,payload,created_at,updated_at,entity_version')
       .order('updated_at',{ascending:false})
       .limit(20000);
     if(error||!Array.isArray(data)) return;
@@ -4210,7 +4210,7 @@ async function pullFromCloud(){
         const id=String(r.item_id||r.payload.id||'');
         if(!id) return;
         if(!remoteById.has(id) || String(r.updated_at||'')>String(remoteById.get(id).updated_at||'')){
-          remoteById.set(id,{payload:{...r.payload,synced:true},updated_at:r.updated_at});
+          remoteById.set(id,{payload:{...r.payload,synced:true,entity_version:r.entity_version},updated_at:r.updated_at});
         }
       });
       const localRows=DB.get(table);
