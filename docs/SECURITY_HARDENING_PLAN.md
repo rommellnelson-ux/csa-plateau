@@ -1,5 +1,12 @@
 # Chantier de durcissement sécurité — plan par étapes testées
 
+> **Statut (juin 2026)** : A1 (externalisation JS) ✅ fait. **CSP protecteur activé**
+> ✅ (version sûre avec `'unsafe-inline'`/`'unsafe-eval'` : bloque l'exfiltration via
+> `connect-src` et les origines de script non autorisées, sans casser les ~118
+> handlers inline). A2 (retrait des handlers inline pour un CSP *strict*) reste
+> **optionnel** — gain marginal, effort/risque élevés ; à faire seulement si une
+> exigence de conformité l'impose.
+
 Objectif : pouvoir activer un **CSP strict** et envisager le **chiffrement au repos**,
 sans jamais casser l'app en production. Chaque étape est validée (`tests.html`
 + aperçu navigateur) et poussée séparément, réversible par `git revert`.
