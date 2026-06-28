@@ -1689,7 +1689,7 @@ VIEW['soins-actes'] = (el) => {
             <div class="fr" style="padding:3px 0;border-bottom:1px solid #f5f5f5">
               <label style="font-size:11px"><strong style="color:var(--cyan)">${a.code}</strong> — ${a.nom}</label>
               <span style="font-size:9px;color:#aaa">${a.cot>0?'AMI×'+a.cot+' = '+fmt(a.cot*TARIFS.AMI)+'F':'Forfait'}</span>
-              <input type="number" class="si-qty" data-code="${a.code}" data-nom="${a.nom}" data-cot="${a.cot}" min="0" value="0" onchange="updateSoinsTotal()" style="width:55px">
+              <input type="number" class="si-qty" data-code="${a.code}" data-nom="${escHtml(a.nom)}" data-cot="${a.cot}" min="0" value="0" onchange="updateSoinsTotal()" style="width:55px">
             </div>`).join('')}
           </div>
         </div>
@@ -1834,7 +1834,7 @@ function saveSoins(){
         <div class="recu-line"><span>Patient</span><span><strong>${escHtml(nom)}</strong></span></div>
         <div class="recu-line"><span>Statut</span><span>${statut}</span></div>
         <div class="recu-line"><span>Facturation</span><span>${statutFacturation}</span></div>
-        ${actes.map(a=>`<div class="recu-line"><span>${a.nom} ×${a.qte}</span><span>${fmt(a.montant)} F</span></div>`).join('')}
+        ${actes.map(a=>`<div class="recu-line"><span>${escHtml(a.nom)} ×${a.qte}</span><span>${fmt(a.montant)} F</span></div>`).join('')}
         <div class="recu-tot"><span>TOTAL</span><span>${fmt(tot)} FCFA</span></div>
         ${statutFacturation==='NA'?`<div style="font-size:10px;margin-top:4px">Tarif plein (droits non vérifiés ou non-assuré)</div>`:`<div style="font-size:10px;color:#666;margin-top:4px">CNAM 70%: ${fmt(cnam)} F | TM patient${statutFacturation==='FPM'?' (forfait CMU)':''}: ${fmt(tm)} F</div>`}
         ${obs?`<div style="font-size:10px;margin-top:6px"><strong>Obs. :</strong> ${obs}</div>`:''}
@@ -2332,6 +2332,13 @@ VIEW['labo-saisie'] = (el) => {
       <div class="card-title">Saisie des actes biologiques</div>
       <div class="sb"><input type="text" id="lb-search" placeholder="Rechercher patient orienté LABO..." oninput="searchLaboPatient()"></div>
       <div id="lb-results" style="max-height:120px;overflow-y:auto"></div>
+      <div class="fr" style="margin-top:4px"><label><input type="checkbox" id="lb-new-toggle" onchange="toggleLbNew()"> Nouveau patient (non enregistré à l'accueil)</label></div>
+      <div id="lb-new-wrap" style="display:none;border:1px dashed var(--bleu);border-radius:8px;padding:10px;margin-bottom:8px;background:#eff5fc">
+        <div class="fr"><label>Nom du patient</label><input type="text" id="lb-new-nom" placeholder="Nom et prénoms"></div>
+        <div class="fr"><label>Sexe</label><select id="lb-new-genre"><option>M</option><option>F</option></select></div>
+        <div class="fr"><label>Statut</label><select id="lb-new-statut"><option value="NA">NA (non assuré)</option><option value="FPM">FPM</option><option value="CMU">CMU</option></select></div>
+        <button class="btn btn-primary btn-sm" onclick="lbCreatePatient()">Créer et sélectionner</button>
+      </div>
       <input type="hidden" id="lb-pid">
       <div class="fr"><label>Patient *</label><input type="text" id="lb-nom" placeholder="Nom du patient"></div>
       <div class="fr"><label>N° dossier</label><input type="text" id="lb-dossier" placeholder="CSA-AAMM-NNNNN"></div>
@@ -2347,9 +2354,9 @@ VIEW['labo-saisie'] = (el) => {
           <div class="fs-title" style="color:var(--bleu)">${cat}</div>
           ${LABO_ACTES.filter(a=>a.cat===cat).map(a=>`
             <div class="fr" style="padding:3px 0;border-bottom:1px solid #f8f8f8">
-              <label style="font-size:11px"><strong style="color:var(--bleu);font-size:10px">${a.code}</strong> ${a.nom}<br><span style="font-size:9px;color:#aaa">${a.tube}</span></label>
+              <label style="font-size:11px"><strong style="color:var(--bleu);font-size:10px">${a.code}</strong> ${escHtml(a.nom)}<br><span style="font-size:9px;color:#aaa">${a.tube}</span></label>
               <span style="font-size:9px;color:#999">B${a.cot}=${fmt(a.cot*TARIFS.B)}F</span>
-              <input type="number" class="lb-qty" data-code="${a.code}" data-nom="${a.nom}" data-cot="${a.cot}" data-tube="${a.tube}" min="0" value="0" onchange="updateLaboTotal()" style="width:50px">
+              <input type="number" class="lb-qty" data-code="${a.code}" data-nom="${escHtml(a.nom)}" data-cot="${a.cot}" data-tube="${a.tube}" min="0" value="0" onchange="updateLaboTotal()" style="width:50px">
             </div>`).join('')}
         </div>`).join('')}
       <div class="tl"><span>Total actes</span><strong id="lb-tot-lbl">0 FCFA</strong></div>
@@ -2391,6 +2398,17 @@ function selectLaboPatient(pid,nom,dossier,statut){
   document.getElementById('lb-search').value='';
   document.getElementById('lb-results').innerHTML='';
   updateLaboTotal();
+}
+function toggleLbNew(){ const on=document.getElementById('lb-new-toggle')?.checked; const w=document.getElementById('lb-new-wrap'); if(w) w.style.display=on?'block':'none'; }
+function lbCreatePatient(){
+  const nom=document.getElementById('lb-new-nom').value.trim();
+  if(!nom){alert('Le nom du patient est obligatoire');return;}
+  const statut=document.getElementById('lb-new-statut').value;
+  const p=DB.push('patients',{ nom, ddn:'', genre:document.getElementById('lb-new-genre').value, tel:'', adresse:'', statut, statut_simple:statut, droits_verifies:'1', cmu_disponible:'0', antecedents:'', dossier_no:generatePatientDossier(), batiment:CURRENT_AGENT.bldg||'SOUS-PREFECTURE', date:today(), cree_par:'labo' });
+  logAudit('PATIENT_CREATE',{patient_id:p.id,dossier_no:p.dossier_no,nom:p.nom,statut,via:'labo'});
+  document.getElementById('lb-new-nom').value='';
+  const t=document.getElementById('lb-new-toggle'); if(t) t.checked=false; toggleLbNew();
+  selectLaboPatient(p.id, p.nom, p.dossier_no, p.statut_simple||p.statut);
 }
 function updateLaboTotal(){
   const s=document.getElementById('lb-statut')?.value||'FPM';
@@ -2521,6 +2539,13 @@ VIEW['pha-vente'] = (el) => {
         </select></div>
       <div class="sb"><input type="text" id="ph-search" placeholder="Rechercher patient..." oninput="searchPharmaPatient()"></div>
       <div id="ph-results" style="max-height:120px;overflow-y:auto"></div>
+      <div class="fr" style="margin-top:4px"><label><input type="checkbox" id="ph-new-toggle" onchange="togglePhNew()"> Nouveau patient (non enregistré à l'accueil)</label></div>
+      <div id="ph-new-wrap" style="display:none;border:1px dashed var(--violet);border-radius:8px;padding:10px;margin-bottom:8px;background:#f5f0fb">
+        <div class="fr"><label>Nom du patient</label><input type="text" id="ph-new-nom" placeholder="Nom et prénoms"></div>
+        <div class="fr"><label>Sexe</label><select id="ph-new-genre"><option>M</option><option>F</option></select></div>
+        <div class="fr"><label>Statut</label><select id="ph-new-statut"><option value="NA">NA (non assuré)</option><option value="FPM">FPM</option><option value="CMU">CMU</option></select></div>
+        <button class="btn btn-primary btn-sm" onclick="phCreatePatient()">Créer et sélectionner</button>
+      </div>
       <input type="hidden" id="ph-pid">
       <div class="fr" id="ph-direct-motif-wrap" style="display:none"><label>Motif entrée directe (obligatoire)</label><input type="text" id="ph-direct-motif" placeholder="Ex: achat direct médicament chronique"></div>
       <div class="fr"><label>Patient *</label><input type="text" id="ph-nom" placeholder="Nom du patient"></div>
@@ -2543,7 +2568,7 @@ VIEW['pha-vente'] = (el) => {
                 <div style="font-size:9px;color:var(--muted)">FPM: ${fmt(m.px_cession)}F | CMU: ${m.cmu_eligible?fmt(pxCMU(m))+'F':'non éligible'} | Hors CMU: ${fmt(pxNA(m))}F</div>
               </div>
               <div style="text-align:right;min-width:100px">
-                <input type="number" class="ph-qty" data-id="${m.id}" data-nom="${m.nom}" data-px-fpm="${m.px_cession}" data-px-cmu="${pxCMU(m)}" data-px-na="${pxNA(m)}" min="0" value="0" onchange="updatePhaTotal()" style="width:60px;padding:4px">
+                <input type="number" class="ph-qty" data-id="${m.id}" data-nom="${escHtml(m.nom)}" data-px-fpm="${m.px_cession}" data-px-cmu="${pxCMU(m)}" data-px-na="${pxNA(m)}" min="0" value="0" onchange="updatePhaTotal()" style="width:60px;padding:4px">
               </div>
             </div>`).join('')}
         </div>
@@ -2576,6 +2601,17 @@ function selectPharmaPatient(pid,nom,statut){
   document.getElementById('ph-search').value='';
   document.getElementById('ph-results').innerHTML='';
   updatePhaTotal();
+}
+function togglePhNew(){ const on=document.getElementById('ph-new-toggle')?.checked; const w=document.getElementById('ph-new-wrap'); if(w) w.style.display=on?'block':'none'; }
+function phCreatePatient(){
+  const nom=document.getElementById('ph-new-nom').value.trim();
+  if(!nom){alert('Le nom du patient est obligatoire');return;}
+  const statut=document.getElementById('ph-new-statut').value;
+  const p=DB.push('patients',{ nom, ddn:'', genre:document.getElementById('ph-new-genre').value, tel:'', adresse:'', statut, statut_simple:statut, droits_verifies:'1', cmu_disponible:'0', antecedents:'', dossier_no:generatePatientDossier(), batiment:CURRENT_AGENT.bldg||'SOUS-PREFECTURE', date:today(), cree_par:'pharmacie' });
+  logAudit('PATIENT_CREATE',{patient_id:p.id,dossier_no:p.dossier_no,nom:p.nom,statut,via:'pharmacie'});
+  document.getElementById('ph-new-nom').value='';
+  const t=document.getElementById('ph-new-toggle'); if(t) t.checked=false; togglePhNew();
+  selectPharmaPatient(p.id, p.nom, p.statut_simple||p.statut);
 }
 function updatePhaTotal(){
   const s=document.getElementById('ph-statut')?.value||'FPM';
