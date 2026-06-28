@@ -31,6 +31,9 @@ let IS_ONLINE = navigator.onLine;
 let SYNC_Q = JSON.parse(localStorage.getItem('csa2_sq')||'[]');
 let LAST_SYNC_ERROR = '';
 let IS_SYNCING = false;
+// Tables modifiables (concernées par le contrôle de version anti-écrasement).
+const MUTABLE_TABLES = ['patients','observations','pharma_stock','pharma_lots','pharma_inventaires','sevci_pvvih'];
+let CONFLICTS = JSON.parse(localStorage.getItem('csa2_conflicts')||'[]');
 
 // ════════════════════════════════════════════════════════
 // Les comptes et rôles sont gérés par Supabase Auth + public.csa_profiles.
@@ -469,6 +472,7 @@ function startApp(){
   buildNav(tabs);
   showView(tabs[0]);
   updateSyncStatus();
+  showConflictBanner();
 }
 // ════════════════════════════════════════════════════════
 // PRODUCTION MONITORING - Immediate Recommendations
@@ -4133,7 +4137,15 @@ function toCloudRow(op){
     updated_at:new Date().toISOString(),
   };
 }
-async function pushCloudRow(row){
+async function pushCloudRow(row, baseVersion){
+  // Anti-écrasement (tables modifiables) : si le serveur a une version plus
+  // récente que celle éditée par l'agent, on NE PAS écrase -> conflit.
+  if(MUTABLE_TABLES.includes(row.table_name) && baseVersion!=null){
+    const cur=await supa.from(CLOUD_TABLE).select('entity_version,payload').eq('event_key',row.event_key).maybeSingle();
+    if(cur.data && cur.data.entity_version!=null && Number(cur.data.entity_version)!==Number(baseVersion)){
+      return {ok:false,conflict:true,serverVersion:cur.data.entity_version,serverPayload:cur.data.payload};
+    }
+  }
   if(row.table_name==='pharma_mouvements'){
     const immutableInsert=await supa.from(CLOUD_TABLE).insert(row);
     if(!immutableInsert.error||String(immutableInsert.error.code||'')==='23505'){
@@ -4168,7 +4180,12 @@ async function syncQueue(){
     const done=[];
     for(const op of SYNC_Q.slice(0,50)){
       const row=toCloudRow(op);
-      const res=await pushCloudRow(row);
+      const res=await pushCloudRow(row, op.item.entity_version);
+      if(res.conflict){
+        addConflict(op,res.serverVersion,res.serverPayload);
+        done.push(op); // retirer de la file : on ne réécrase pas, on parque le conflit
+        continue;
+      }
       if(!res.ok){
         LAST_SYNC_ERROR=res.error?.message||'Erreur Supabase';
         break;
@@ -4193,6 +4210,67 @@ async function syncQueue(){
     if(IS_ONLINE&&SYNC_Q.length&&!LAST_SYNC_ERROR) setTimeout(syncQueue,0);
   }
 }
+// ── Conflits de synchronisation (anti-écrasement, Phase 1.3b) ──
+function saveConflicts(){ localStorage.setItem('csa2_conflicts', JSON.stringify(CONFLICTS)); }
+function addConflict(op, serverVersion, serverPayload){
+  CONFLICTS = CONFLICTS.filter(c=>!(c.table===op.table && String(c.item_id)===String(op.item.id)));
+  CONFLICTS.push({cid:newClientEventId(), table:op.table, item_id:op.item.id, local:op.item, serverVersion:serverVersion, serverPayload:serverPayload||{}, at:new Date().toISOString()});
+  saveConflicts(); showConflictBanner();
+  logAudit('SYNC_CONFLICT',{table:op.table,item:op.item.id,serverVersion});
+}
+function showConflictBanner(){
+  let b=document.getElementById('csa-conflict-banner');
+  if(!CONFLICTS.length){ if(b) b.remove(); return; }
+  if(!b){
+    b=document.createElement('div'); b.id='csa-conflict-banner';
+    b.style.cssText='position:fixed;left:0;right:0;top:0;background:#8B1A1A;color:#fff;padding:10px 14px;text-align:center;z-index:2100;font-size:13px;font-weight:700;cursor:pointer';
+    b.onclick=openConflicts; document.body.appendChild(b);
+  }
+  b.textContent='⚠ '+CONFLICTS.length+' conflit(s) de synchronisation — cliquer pour résoudre';
+}
+function conflictSummary(p){
+  try{ return Object.entries(p||{}).filter(([k])=>!['synced','entity_version','client_event_id','agent_id'].includes(k))
+        .slice(0,6).map(([k,v])=>k+': '+String(v).slice(0,30)).join(' | '); }catch(e){ return ''; }
+}
+function openConflicts(){
+  const ex=document.getElementById('csa-conflict-overlay'); if(ex) ex.remove();
+  const o=document.createElement('div'); o.id='csa-conflict-overlay';
+  o.style.cssText='position:fixed;inset:0;background:rgba(15,32,56,.55);z-index:2200;overflow-y:auto;padding:20px';
+  o.innerHTML='<div style="max-width:760px;margin:0 auto;background:#fff;border-radius:10px;padding:18px">'
+    +'<h3 style="color:#8B1A1A;margin-bottom:6px">Conflits de synchronisation</h3>'
+    +'<p style="font-size:12px;color:#667084;margin-bottom:12px">Une version plus récente existe déjà sur le serveur. Choisissez pour chaque cas — aucune donnée n\'est perdue avant votre choix.</p>'
+    +CONFLICTS.map(c=>'<div style="border:1px solid #e0a0a0;border-radius:8px;padding:10px;margin-bottom:10px">'
+        +'<div style="font-weight:700;font-size:12px">'+escHtml(c.table)+' — '+escHtml(String(c.item_id))+'</div>'
+        +'<div style="font-size:11px;margin-top:6px"><strong>Votre version :</strong> '+escHtml(conflictSummary(c.local))+'</div>'
+        +'<div style="font-size:11px;margin-top:2px"><strong>Serveur (v'+escHtml(String(c.serverVersion))+') :</strong> '+escHtml(conflictSummary(c.serverPayload))+'</div>'
+        +'<div class="btn-row" style="margin-top:8px">'
+          +'<button class="btn btn-ghost btn-sm" onclick="resolveConflict(\''+c.cid+'\',\'server\')">Garder la version serveur</button> '
+          +'<button class="btn btn-primary btn-sm" onclick="resolveConflict(\''+c.cid+'\',\'local\')">Forcer ma version</button>'
+        +'</div></div>').join('')
+    +'<div class="btn-row" style="justify-content:flex-end"><button class="btn btn-ghost" onclick="this.closest(\'#csa-conflict-overlay\').remove()">Fermer</button></div>'
+    +'</div>';
+  document.body.appendChild(o);
+}
+function resolveConflict(cid, choice){
+  const c=CONFLICTS.find(x=>x.cid===cid); if(!c) return;
+  const arr=DB.get(c.table); const i=arr.findIndex(it=>String(it.id)===String(c.item_id));
+  if(choice==='server'){
+    const srv={...c.serverPayload, synced:true, entity_version:c.serverVersion};
+    if(i>=0) arr[i]=srv; else arr.unshift(srv);
+    DB.set(c.table, arr);
+  } else { // forcer : repartir de la version serveur pour pouvoir réécrire
+    const forced={...c.local, entity_version:c.serverVersion, synced:false};
+    if(i>=0) arr[i]=forced; else arr.unshift(forced);
+    DB.set(c.table, arr);
+    queueSync(c.table, forced);
+  }
+  CONFLICTS=CONFLICTS.filter(x=>x.cid!==cid); saveConflicts();
+  logAudit('SYNC_CONFLICT_RESOLVED',{table:c.table,item:c.item_id,choice});
+  showConflictBanner();
+  const o=document.getElementById('csa-conflict-overlay'); if(o){ o.remove(); if(CONFLICTS.length) openConflicts(); }
+  if(choice==='local'&&IS_ONLINE&&supa) syncQueue();
+}
+
 async function pullFromCloud(){
   if(!supa||!CURRENT_AGENT||!IS_ONLINE) return;
   try{
