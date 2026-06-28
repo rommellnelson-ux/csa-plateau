@@ -1,7 +1,8 @@
-const CACHE = 'csa-plateau-v15-network-first';
+const CACHE = 'csa-plateau-v16-app-js';
 const ASSETS = [
   './',
   './index.html',
+  './app.js',
   'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js',
   'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js'
 ];
@@ -25,18 +26,17 @@ self.addEventListener('fetch', e => {
   // Ne jamais intercepter Supabase (synchronisation temps réel)
   if (req.url.includes('supabase.co')) return;
 
-  const isDoc = req.mode === 'navigate'
-    || req.destination === 'document'
-    || req.url.endsWith('/')
-    || req.url.endsWith('index.html');
+  let sameOrigin = false;
+  try { sameOrigin = new URL(req.url).origin === self.location.origin; } catch (err) {}
 
-  if (isDoc) {
-    // RÉSEAU D'ABORD pour l'app : toujours la dernière version, repli cache hors-ligne.
+  if (sameOrigin) {
+    // RÉSEAU D'ABORD pour tous les fichiers de l'app (index.html, app.js, ...)
+    // -> toujours la dernière version ; repli sur le cache hors-ligne.
     e.respondWith(
       fetch(req).then(resp => {
         if (resp && resp.status === 200) {
           const clone = resp.clone();
-          caches.open(CACHE).then(cache => cache.put('./index.html', clone));
+          caches.open(CACHE).then(cache => cache.put(req, clone));
         }
         return resp;
       }).catch(() => caches.match(req).then(c => c || caches.match('./index.html')))
