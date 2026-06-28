@@ -21,8 +21,47 @@
 // ════════════════════════════════════════════════════════
 // CONFIG SUPABASE
 // ════════════════════════════════════════════════════════
-const SUPABASE_URL = 'https://wsnehnempnexzxzuklbv.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_FKlt6IevUM0nceNw13qiMA_OxMponku';
+// Sélection d'environnement : ?env=staging bascule sur la base de préprod.
+// (mémorisé ; ?env=prod ou ?env=production revient en prod)
+const CSA_ENVS = {
+  prod:    { url:'https://wsnehnempnexzxzuklbv.supabase.co', key:'sb_publishable_FKlt6IevUM0nceNw13qiMA_OxMponku' },
+  staging: { url:'https://mzfrcoqjbizhgppwmjon.supabase.co', key:'sb_publishable_dgEqnrHvaA5QObM588KHsw_cN9JkUe_' }
+};
+(function(){
+  try{
+    const q=new URLSearchParams(location.search).get('env');
+    if(q==='staging') localStorage.setItem('csa2_env','staging');
+    else if(q==='prod'||q==='production') localStorage.removeItem('csa2_env');
+  }catch(e){}
+})();
+const CSA_ENV = (function(){ try{ return localStorage.getItem('csa2_env')==='staging'?'staging':'prod'; }catch(e){ return 'prod'; } })();
+// Isolation : si on change d'environnement, on PURGE le cache local (csa2_*)
+// pour qu'aucune donnée/op d'un env ne fuite vers l'autre (ex. staging -> prod).
+(function(){
+  try{
+    const prev=localStorage.getItem('csa2_active_env');
+    // Purge UNIQUEMENT lors d'un vrai changement d'environnement (prod<->staging),
+    // pas au premier chargement (sinon on viderait la file de sync en attente).
+    if(prev && prev!==CSA_ENV){
+      Object.keys(localStorage).filter(k=>k.indexOf('csa2_')===0 && k!=='csa2_env' && k!=='csa2_active_env')
+        .forEach(k=>localStorage.removeItem(k));
+    }
+    localStorage.setItem('csa2_active_env', CSA_ENV);
+  }catch(e){}
+})();
+const SUPABASE_URL = CSA_ENVS[CSA_ENV].url;
+const SUPABASE_KEY = CSA_ENVS[CSA_ENV].key;
+// Badge bien visible en mode staging.
+if(CSA_ENV==='staging'){
+  try{
+    document.title='[STAGING] '+document.title;
+    const sb=document.createElement('div');
+    sb.textContent='● PRÉPROD / STAGING — données de test, sans impact sur la production';
+    sb.style.cssText='position:fixed;bottom:0;left:0;right:0;background:#7F3F00;color:#fff;text-align:center;font-size:12px;font-weight:700;padding:5px;z-index:3000';
+    if(document.body) document.body.appendChild(sb);
+    else document.addEventListener('DOMContentLoaded',()=>document.body.appendChild(sb));
+  }catch(e){}
+}
 const INSTITUTION_LOGO_URL = './assets/logo.png';
 const CLOUD_TABLE = 'csa_events';
 const SYNC_TABLES = ['patients','consultations','constantes','transactions','labo_actes','soins','observations','pharma_ventes','pharma_stock','pharma_lots','pharma_mouvements','pharma_inventaires','pharma_catalogue_historique','pharma_aliases','pharma_registre_historique','pharma_composants_historiques','clotures','audit_logs','sevci_pvvih','sevci_actions'];
