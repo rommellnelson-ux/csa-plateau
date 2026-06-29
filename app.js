@@ -35,9 +35,10 @@ const CSA_ENVS = {
   }catch(e){}
 })();
 const CSA_ENV = (function(){ try{ return localStorage.getItem('csa2_env')==='staging'?'staging':'prod'; }catch(e){ return 'prod'; } })();
-// Synchro v2 (idempotence client_event_id + version/anti-conflit) : activée
-// UNIQUEMENT en staging tant qu'elle n'est pas validée pour la prod.
-const SYNC_V2 = (CSA_ENV === 'staging');
+// Synchro v2 (idempotence client_event_id + version/anti-conflit) : ACTIVE
+// partout (validée sur staging). Repli automatique si le cache de schéma
+// PostgREST n'a pas encore les colonnes -> aucun risque d'outage.
+const SYNC_V2 = true;
 // Isolation : si on change d'environnement, on PURGE le cache local (csa2_*)
 // pour qu'aucune donnée/op d'un env ne fuite vers l'autre (ex. staging -> prod).
 (function(){
@@ -4189,25 +4190,27 @@ async function pushCloudRow(row, baseVersion){
       return {ok:false,conflict:true,serverVersion:cur.data.entity_version,serverPayload:cur.data.payload};
     }
   }
-  // Tables EN INSERTION SEULE (audit_logs, consultations, soins, constantes,
-  // labo_actes, transactions, clotures, pharma_ventes, pharma_mouvements...) :
-  // INSERT simple. Un doublon (même event_key déjà enregistré) = déjà
-  // synchronisé -> succès. On n'essaie JAMAIS d'UPDATE ces tables (la policy
-  // UPDATE les interdit : 42501). C'est ce qui bloquait la file.
-  if(!MUTABLE_TABLES.includes(row.table_name)){
-    const ins=await supa.from(CLOUD_TABLE).insert(row);
-    if(!ins.error) return {ok:true};
-    if(String(ins.error.code||'')==='23505') return {ok:true,fallback:'duplicate_ignored'};
-    return {ok:false,error:ins.error};
+  // Insertion seule pour les tables immuables (doublon = déjà synchronisé) ;
+  // upsert pour les tables modifiables (UPDATE autorisé par la policy).
+  const insertOnly = !MUTABLE_TABLES.includes(row.table_name);
+  const doWrite = (r)=> insertOnly
+    ? supa.from(CLOUD_TABLE).insert(r)
+    : supa.from(CLOUD_TABLE).upsert(r,{onConflict:'event_key'});
+  let res = await doWrite(row);
+  // Repli automatique si le cache de schéma PostgREST ne connaît pas encore
+  // client_event_id (évite tout outage lors de l'activation de la v2).
+  if(res.error && row.client_event_id!==undefined && csaIsCacheErr(res.error)){
+    res = await doWrite(csaStripCev(row));
   }
-  // Tables MODIFIABLES (patients, observations, pharma_stock/lots/inventaires,
-  // sevci_pvvih) : upsert (la policy UPDATE l'autorise).
-  const upsertRes = await supa.from(CLOUD_TABLE).upsert(row,{onConflict:'event_key'});
-  if(!upsertRes.error) return {ok:true};
-  const code = String(upsertRes.error.code||'');
-  if(code==='23505') return {ok:true,fallback:'duplicate_ignored'};
-  return {ok:false,error:upsertRes.error};
+  if(!res.error) return {ok:true};
+  if(String(res.error.code||'')==='23505') return {ok:true,fallback:'duplicate_ignored'};
+  return {ok:false,error:res.error};
 }
+function csaIsCacheErr(e){
+  const m=String(e&&e.message||''); const c=String(e&&e.code||'');
+  return c==='PGRST204' || /schema cache|could not find|client_event_id|entity_version/i.test(m);
+}
+function csaStripCev(row){ const r={...row}; delete r.client_event_id; return r; }
 async function syncQueue(){
   if(!supa||!CURRENT_AGENT||!IS_ONLINE||!SYNC_Q.length||IS_SYNCING)return;
   IS_SYNCING=true;
@@ -4310,11 +4313,15 @@ function resolveConflict(cid, choice){
 async function pullFromCloud(){
   if(!supa||!CURRENT_AGENT||!IS_ONLINE) return;
   try{
-    const {data,error}=await supa
-      .from(CLOUD_TABLE)
-      .select(SYNC_V2?'table_name,item_id,payload,created_at,updated_at,entity_version':'table_name,item_id,payload,created_at,updated_at')
-      .order('updated_at',{ascending:false})
-      .limit(20000);
+    const baseCols='table_name,item_id,payload,created_at,updated_at';
+    let resp=await supa.from(CLOUD_TABLE)
+      .select(SYNC_V2?baseCols+',entity_version':baseCols)
+      .order('updated_at',{ascending:false}).limit(20000);
+    // Repli si entity_version pas encore dans le cache de schéma.
+    if(resp.error && SYNC_V2 && csaIsCacheErr(resp.error)){
+      resp=await supa.from(CLOUD_TABLE).select(baseCols).order('updated_at',{ascending:false}).limit(20000);
+    }
+    const {data,error}=resp;
     if(error||!Array.isArray(data)) return;
     SYNC_TABLES.forEach(table=>{
       const rows=data.filter(r=>r.table_name===table&&r.payload&&typeof r.payload==='object');
