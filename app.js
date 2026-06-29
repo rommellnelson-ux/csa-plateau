@@ -39,6 +39,11 @@ const CSA_ENV = (function(){ try{ return localStorage.getItem('csa2_env')==='sta
 // partout (validée sur staging). Repli automatique si le cache de schéma
 // PostgREST n'a pas encore les colonnes -> aucun risque d'outage.
 const SYNC_V2 = true;
+// Commit de groupe atomique (Phase 2.2) : une vente = vente + mouvements +
+// transaction (caisse) envoyés ENSEMBLE via la RPC csa_commit (tout-ou-rien).
+// Gardé en STAGING uniquement tant que non validé -> la prod reste inchangée.
+const SYNC_GROUPS = (CSA_ENV==='staging');
+let CSA_GROUP = null; // id du groupe en cours (null hors d'un groupe)
 // Isolation : si on change d'environnement, on PURGE le cache local (csa2_*)
 // pour qu'aucune donnée/op d'un env ne fuite vers l'autre (ex. staging -> prod).
 (function(){
@@ -314,7 +319,9 @@ const DB = {
     arr.unshift(item);
     DB.set(k,arr.slice(0,3000));
     queueSync(k,item);
-    if(IS_ONLINE&&supa) syncQueue();
+    // Pendant un groupe atomique, on diffère la synchro : endGroup() la déclenche
+    // une seule fois quand tous les events du groupe sont en file (atomicité).
+    if(IS_ONLINE&&supa&&!CSA_GROUP) syncQueue();
     return item;
   },
   today:()=>new Date().toISOString().slice(0,10),
@@ -734,10 +741,22 @@ function newClientEventId(){
 function queueSync(table,item){
   if(!SYNC_TABLES.includes(table)||!item?.id) return;
   const op={table,item:{...item,updated_at:new Date().toISOString(),synced:false,client_event_id:newClientEventId()}};
+  // Marque d'appartenance à un groupe atomique (jamais sur une table mutable :
+  // le stock garde son chemin per-row + anti-écrasement). grp vit sur l'op, pas
+  // dans l'item -> n'entre pas dans le payload synchronisé.
+  if(SYNC_GROUPS && CSA_GROUP && !MUTABLE_TABLES.includes(table)) op.grp=CSA_GROUP;
   const key=table+':'+item.id;
   SYNC_Q=SYNC_Q.filter(existing=>(existing.table+':'+existing.item?.id)!==key);
   SYNC_Q.push(op);
   localStorage.setItem('csa2_sq',JSON.stringify(SYNC_Q));
+}
+// Délimite un groupe d'événements append-only à committer atomiquement (vente).
+function beginGroup(){
+  if(SYNC_GROUPS) CSA_GROUP='grp_'+Date.now()+'_'+Math.random().toString(36).slice(2,7);
+}
+function endGroup(){
+  const had=CSA_GROUP; CSA_GROUP=null;
+  if(had && IS_ONLINE && supa) syncQueue();
 }
 function persistUpdatedRecord(table,rows,item){
   item.updated_at=new Date().toISOString();
@@ -2469,7 +2488,10 @@ function savePharmaVente(){
   const cnam=sf==='FPM'?tot:sf==='CMU'?Math.round(tot*0.7):0;
   const encaisse=sf==='FPM'?0:tot;
   const tm=sf==='CMU'?Math.round(tot*0.3):sf==='NA'?tot:0;
-  const v=DB.push('pharma_ventes',{patient_id:pid||'',patient_nom:nom,statut:s,statut_facturation:sf,ordonnance:document.getElementById('ph-ord').value,items,total:tot,cnam,tm,date:today(),origine,motif_entree_directe:origine==='DIRECTE'?motifDirect:''});
+  beginGroup();
+  let v;
+  try{
+  v=DB.push('pharma_ventes',{patient_id:pid||'',patient_nom:nom,statut:s,statut_facturation:sf,ordonnance:document.getElementById('ph-ord').value,items,total:tot,cnam,tm,date:today(),origine,motif_entree_directe:origine==='DIRECTE'?motifDirect:''});
   items.forEach(item=>{
     const med=stock.find(m=>m.id===item.id);
     (item.lots||[]).forEach(allocation=>recordStockMovement({
@@ -2489,6 +2511,7 @@ function savePharmaVente(){
   DB.push('transactions',{patient_nom:nom,statut:sf,service:'PHARMACIE',
     designation:'Pharmacie: '+items.map(i=>i.nom).join(', '),montant:tot,cnam,encaisse,date:today()});
   logAudit('PHARMACIE_VENTE',{patient_nom:nom,statut:s,statut_facturation:sf,total:tot,origine,motif_entree_directe:origine==='DIRECTE'?motifDirect:''});
+  } finally { endGroup(); }
   const now=new Date();
   document.getElementById('ph-recu-zone').innerHTML=`
     <div class="card" id="ph-recu-${v.id}">
@@ -4211,13 +4234,45 @@ function csaIsCacheErr(e){
   return c==='PGRST204' || /schema cache|could not find|client_event_id|entity_version/i.test(m);
 }
 function csaStripCev(row){ const r={...row}; delete r.client_event_id; return r; }
+function csaIsMissingFn(e){
+  const m=String(e&&e.message||''); const c=String(e&&e.code||'');
+  return c==='PGRST202' || c==='404' || /could not find the function|function .* does not exist/i.test(m);
+}
+// Commit atomique d'un groupe (Phase 2.2) via la RPC csa_commit : tout-ou-rien.
+async function pushCloudGroup(ops){
+  const events=ops.map(toCloudRow);
+  let res=await supa.rpc('csa_commit',{events});
+  if(res.error && csaIsCacheErr(res.error)) res=await supa.rpc('csa_commit',{events:events.map(csaStripCev)});
+  if(!res.error) return {ok:true};
+  if(csaIsMissingFn(res.error)) return {degrade:true}; // fonction absente -> repli per-row
+  return {ok:false,error:res.error};
+}
 async function syncQueue(){
   if(!supa||!CURRENT_AGENT||!IS_ONLINE||!SYNC_Q.length||IS_SYNCING)return;
   IS_SYNCING=true;
   updateSyncStatus();
   try{
     const done=[];
-    for(const op of SYNC_Q.slice(0,50)){
+    const markLocalSynced=(op,ts)=>{
+      const localRows=DB.get(op.table);
+      const local=localRows.find(item=>String(item.id)===String(op.item.id));
+      if(local){ local.synced=true; local.updated_at=ts; DB.set(op.table,localRows); }
+    };
+    const slice=SYNC_Q.slice(0,50);
+    for(const op of slice){
+      if(done.includes(op)) continue;
+      // ── Groupe atomique : vente + mouvements + transaction en un seul commit ──
+      if(SYNC_GROUPS && op.grp){
+        const groupOps=slice.filter(o=>o.grp===op.grp && !done.includes(o));
+        const gres=await pushCloudGroup(groupOps);
+        if(gres.ok){
+          const ts=new Date().toISOString();
+          groupOps.forEach(o=>{ done.push(o); markLocalSynced(o,ts); });
+          continue;
+        }
+        if(!gres.degrade){ LAST_SYNC_ERROR=gres.error?.message||'Erreur Supabase (groupe)'; break; }
+        // degrade : on retombe sur le chemin per-row ci-dessous (jamais de blocage)
+      }
       const row=toCloudRow(op);
       const res=await pushCloudRow(row, op.item.entity_version);
       if(res.conflict){
@@ -4230,13 +4285,7 @@ async function syncQueue(){
         break;
       }
       done.push(op);
-      const localRows=DB.get(op.table);
-      const local=localRows.find(item=>String(item.id)===String(op.item.id));
-      if(local){
-        local.synced=true;
-        local.updated_at=row.updated_at;
-        DB.set(op.table,localRows);
-      }
+      markLocalSynced(op,row.updated_at);
     }
     SYNC_Q=SYNC_Q.filter(o=>!done.includes(o));
     localStorage.setItem('csa2_sq',JSON.stringify(SYNC_Q));
