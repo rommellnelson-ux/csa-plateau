@@ -156,6 +156,33 @@ begin
   return new;
 end; $fn$;
 
+-- Commit atomique d'un groupe d'événements append-only (Phase 2.2).
+create or replace function public.csa_commit(events jsonb)
+returns integer language plpgsql security definer set search_path = public as $cm$
+declare e jsonb; my_agent text; n int := 0;
+begin
+  if jsonb_typeof(events) <> 'array' then
+    raise exception 'csa_commit: events doit être un tableau JSON';
+  end if;
+  select p.agent_code into my_agent from public.csa_profiles p
+    where p.user_id = auth.uid() and p.active;
+  if my_agent is null then raise exception 'csa_commit: profil introuvable ou inactif'; end if;
+  for e in select * from jsonb_array_elements(events) loop
+    if e->>'table_name' in ('patients','observations','pharma_stock','pharma_lots','pharma_inventaires','sevci_pvvih') then
+      raise exception 'csa_commit: table mutable % interdite dans un commit de groupe', e->>'table_name'; end if;
+    if not public.csa_can_write(e->>'table_name') then
+      raise exception 'csa_commit: écriture non autorisée sur %', e->>'table_name'; end if;
+    if coalesce(e->>'agent_id','') <> my_agent then
+      raise exception 'csa_commit: agent_id usurpé'; end if;
+    insert into public.csa_events (event_key, table_name, item_id, payload, agent_id, agent_nom, client_event_id)
+    values (e->>'event_key', e->>'table_name', e->>'item_id', coalesce(e->'payload','{}'::jsonb),
+            e->>'agent_id', e->>'agent_nom', nullif(e->>'client_event_id','')::uuid)
+    on conflict (event_key) do nothing;
+    n := n + 1;
+  end loop;
+  return n;
+end; $cm$;
+
 -- 5) TRIGGERS ──────────────────────────────────────────────
 drop trigger if exists csa_events_set_owner on public.csa_events;
 create trigger csa_events_set_owner before insert or update on public.csa_events
@@ -206,11 +233,13 @@ revoke all on function public.csa_chief_has_aal2() from public;
 revoke all on function public.csa_has_aal2() from public;
 revoke all on function public.csa_can_read(text) from public;
 revoke all on function public.csa_can_write(text) from public;
+revoke all on function public.csa_commit(jsonb) from public;
 grant execute on function public.csa_is_chief() to authenticated;
 grant execute on function public.csa_current_profile() to authenticated;
 grant execute on function public.csa_chief_has_aal2() to authenticated;
 grant execute on function public.csa_has_aal2() to authenticated;
 grant execute on function public.csa_can_read(text) to authenticated;
 grant execute on function public.csa_can_write(text) to authenticated;
+grant execute on function public.csa_commit(jsonb) to authenticated;
 
 commit;
