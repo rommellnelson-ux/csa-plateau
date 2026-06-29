@@ -35,6 +35,9 @@ const CSA_ENVS = {
   }catch(e){}
 })();
 const CSA_ENV = (function(){ try{ return localStorage.getItem('csa2_env')==='staging'?'staging':'prod'; }catch(e){ return 'prod'; } })();
+// Synchro v2 (idempotence client_event_id + version/anti-conflit) : activée
+// UNIQUEMENT en staging tant qu'elle n'est pas validée pour la prod.
+const SYNC_V2 = (CSA_ENV === 'staging');
 // Isolation : si on change d'environnement, on PURGE le cache local (csa2_*)
 // pour qu'aucune donnée/op d'un env ne fuite vers l'autre (ex. staging -> prod).
 (function(){
@@ -4164,7 +4167,7 @@ function retrySync(){
   syncQueue();
 }
 function toCloudRow(op){
-  return {
+  const row={
     event_key:`${op.table}:${op.item.id||Date.now()}`,
     table_name:op.table,
     item_id:String(op.item.id||''),
@@ -4174,8 +4177,18 @@ function toCloudRow(op){
     agent_nom:op.item.agent_nom||CURRENT_AGENT?.nom||null,
     updated_at:new Date().toISOString(),
   };
+  if(SYNC_V2) row.client_event_id=op.item.client_event_id||null; // idempotence (staging)
+  return row;
 }
 async function pushCloudRow(row, baseVersion){
+  // Anti-écrasement (staging) : si la version serveur d'une table modifiable a
+  // changé depuis ce que l'agent a édité -> conflit (aucun écrasement silencieux).
+  if(SYNC_V2 && MUTABLE_TABLES.includes(row.table_name) && baseVersion!=null){
+    const cur=await supa.from(CLOUD_TABLE).select('entity_version,payload').eq('event_key',row.event_key).maybeSingle();
+    if(!cur.error && cur.data && cur.data.entity_version!=null && Number(cur.data.entity_version)!==Number(baseVersion)){
+      return {ok:false,conflict:true,serverVersion:cur.data.entity_version,serverPayload:cur.data.payload};
+    }
+  }
   // Tables EN INSERTION SEULE (audit_logs, consultations, soins, constantes,
   // labo_actes, transactions, clotures, pharma_ventes, pharma_mouvements...) :
   // INSERT simple. Un doublon (même event_key déjà enregistré) = déjà
@@ -4299,7 +4312,7 @@ async function pullFromCloud(){
   try{
     const {data,error}=await supa
       .from(CLOUD_TABLE)
-      .select('table_name,item_id,payload,created_at,updated_at')
+      .select(SYNC_V2?'table_name,item_id,payload,created_at,updated_at,entity_version':'table_name,item_id,payload,created_at,updated_at')
       .order('updated_at',{ascending:false})
       .limit(20000);
     if(error||!Array.isArray(data)) return;
@@ -4311,7 +4324,7 @@ async function pullFromCloud(){
         const id=String(r.item_id||r.payload.id||'');
         if(!id) return;
         if(!remoteById.has(id) || String(r.updated_at||'')>String(remoteById.get(id).updated_at||'')){
-          remoteById.set(id,{payload:{...r.payload,synced:true},updated_at:r.updated_at});
+          remoteById.set(id,{payload:{...r.payload,synced:true,...(SYNC_V2?{entity_version:r.entity_version}:{})},updated_at:r.updated_at});
         }
       });
       const localRows=DB.get(table);
