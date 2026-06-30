@@ -41,8 +41,9 @@ const CSA_ENV = (function(){ try{ return localStorage.getItem('csa2_env')==='sta
 const SYNC_V2 = true;
 // Commit de groupe atomique (Phase 2.2) : une vente = vente + mouvements +
 // transaction (caisse) envoyés ENSEMBLE via la RPC csa_commit (tout-ou-rien).
-// Gardé en STAGING uniquement tant que non validé -> la prod reste inchangée.
-const SYNC_GROUPS = (CSA_ENV==='staging');
+// Validé sur staging puis promu en prod (juin 2026). Repli per-row automatique
+// si csa_commit est absente -> jamais de blocage même si la RPC manque.
+const SYNC_GROUPS = true;
 let CSA_GROUP = null; // id du groupe en cours (null hors d'un groupe)
 // Isolation : si on change d'environnement, on PURGE le cache local (csa2_*)
 // pour qu'aucune donnée/op d'un env ne fuite vers l'autre (ex. staging -> prod).
