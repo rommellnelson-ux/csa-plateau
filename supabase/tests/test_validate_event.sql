@@ -31,6 +31,10 @@ create temp table _v (table_name text, payload jsonb);
 create trigger _v_validate before insert on _v
   for each row execute function public.csa_validate_event();
 
+-- pgTAP exige une déclaration de plan avant toute assertion. no_plan() = on ne
+-- fige pas le nombre de tests (le tableau ci-dessous suffit à les lire tous).
+select * from no_plan();
+
 -- Tous les résultats dans UN seul tableau (lisible dans le SQL Editor) :
 select * from has_function('public', 'csa_validate_event', 'csa_validate_event présente')
 union all select * from has_function('public', 'csa_commit', ARRAY['jsonb']::name[], 'csa_commit(jsonb) présente')
