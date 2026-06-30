@@ -58,6 +58,61 @@ const TEST_SRC = `(function(){
     const dd=document.createElement('div'); try{VIEW['chef-patients'](dd);}catch(e){}
     ok('XSS nom patient echappe', dd.innerHTML.indexOf('<img src=x onerror')===-1);
     localStorage.removeItem('csa2_patients');
+
+    // ─── Règle prix pharmacie (commit 957f313/1411238) : produit sans tarif validé ───
+    ok('needsPriceValidation: px_cession 0 -> a valider', needsPriceValidation({px_cession:0})===true);
+    ok('needsPriceValidation: prix positif -> ok', needsPriceValidation({px_cession:500})===false);
+    ok('needsPriceValidation: A_VALIDER force malgre prix', needsPriceValidation({px_cession:500,price_status:'A_VALIDER'})===true);
+    ok('needsPriceValidation: produit cree sans prix (hors chef) -> a valider', needsPriceValidation({})===true);
+
+    // ─── Synchro v2 : idempotence (client_event_id) ───
+    ok('newClientEventId: format UUID v4', /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(newClientEventId()));
+    ok('newClientEventId: 2 appels = 2 cles distinctes', newClientEventId()!==newClientEventId());
+
+    // ─── Repli anti-outage : cache de schema PostgREST inconnu ───
+    ok('csaIsCacheErr: code PGRST204 -> repli', csaIsCacheErr({code:'PGRST204'})===true);
+    ok('csaIsCacheErr: message schema cache -> repli', csaIsCacheErr({message:"Could not find the 'client_event_id' column in the schema cache"})===true);
+    ok('csaIsCacheErr: doublon 23505 -> PAS un cache err', csaIsCacheErr({code:'23505'})===false);
+    ok('csaIsCacheErr: permission denied -> PAS un cache err', csaIsCacheErr({message:'permission denied'})===false);
+    ok('csaStripCev retire client_event_id', csaStripCev({a:1,client_event_id:'x'}).client_event_id===undefined);
+    ok('csaStripCev conserve les autres champs', csaStripCev({a:1,client_event_id:'x'}).a===1);
+    { const src={client_event_id:'x'}; csaStripCev(src); ok('csaStripCev ne mute pas la source', src.client_event_id==='x'); }
+
+    // ─── Commit atomique (csa_commit) : detection fonction absente -> repli per-row ───
+    ok('csaIsMissingFn: PGRST202 -> repli per-row', csaIsMissingFn({code:'PGRST202'})===true);
+    ok('csaIsMissingFn: message fonction absente -> repli per-row', csaIsMissingFn({message:'Could not find the function public.csa_commit'})===true);
+    ok('csaIsMissingFn: cache err != fonction absente', csaIsMissingFn({code:'PGRST204'})===false);
+
+    // ─── toCloudRow : propage la cle d'idempotence + forme de l'event ───
+    { const r=toCloudRow({table:'transactions',item:{id:'T1',client_event_id:'CEV-1',created_at:'2026-06-30T00:00:00Z'}});
+      ok('toCloudRow: client_event_id propage (SYNC_V2)', r.client_event_id==='CEV-1');
+      ok('toCloudRow: event_key = table:id', r.event_key==='transactions:T1');
+      ok('toCloudRow: payload.synced force a true', r.payload.synced===true);
+      ok('toCloudRow: created_at preserve', r.created_at==='2026-06-30T00:00:00Z'); }
+
+    // ─── Groupe atomique : une table MUTABLE ne rejoint JAMAIS un groupe (anti-ecrasement) ───
+    ok('MUTABLE_TABLES contient pharma_stock', MUTABLE_TABLES.includes('pharma_stock'));
+    { const savedQ=SYNC_Q.slice(), savedGrp=CSA_GROUP;
+      try{
+        CSA_GROUP='grp_test'; SYNC_Q=[];
+        queueSync('pharma_mouvements',{id:'MV1'}); // immuable -> estampille
+        queueSync('pharma_stock',{id:'ST1'});       // mutable -> jamais estampille
+        const mv=SYNC_Q.find(o=>o.table==='pharma_mouvements');
+        const st=SYNC_Q.find(o=>o.table==='pharma_stock');
+        ok('groupe: event immuable estampille grp', !!mv && mv.grp==='grp_test');
+        ok('groupe: table mutable JAMAIS estampillee', !!st && st.grp===undefined);
+        ok('queueSync: chaque op recoit un client_event_id', !!mv && /[0-9a-f-]{36}/i.test(mv.item.client_event_id||''));
+      } finally { SYNC_Q=savedQ; CSA_GROUP=savedGrp; localStorage.setItem('csa2_sq',JSON.stringify(SYNC_Q)); }
+    }
+
+    // ─── Stock jamais negatif (front) : FEFO + survente bloquee ───
+    { const med={id:'Mx',nom:'X',stock:10};
+      const lots=[{id:'L2',med_id:'Mx',quantite:5,date_peremption:'2027-01-01',created_at:'b'},
+                  {id:'L1',med_id:'Mx',quantite:5,date_peremption:'2026-08-01',created_at:'a'}];
+      const alloc=consumeLots(med,lots,3);
+      ok('FEFO: consomme le lot perimant le plus tot en premier', alloc[0].lot_id==='L1'); }
+    { let threw=false; try{ consumeLots({id:'My',nom:'Y',stock:0},[{id:'L',med_id:'My',quantite:2,date_peremption:'2027-01-01'}],10); }catch(e){ threw=true; }
+      ok('Survente bloquee: consumeLots jette si lots insuffisants', threw===true); }
   }catch(e){ ok('exception fatale: '+e.message, false); }
   return results;
 })()`;
