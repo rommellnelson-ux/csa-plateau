@@ -678,6 +678,11 @@ function lotExpiryState(lot){
 function isOperationalStockAlert(med){
   return med?.catalogue_status!=='A_INVENTORIER' && (+med?.stock||0)<=(+med?.seuil||0);
 }
+// Produit en attente d'un prix fixé par le Médecin-Chef (création par un
+// pharmacien -> champs prix retirés -> px_cession=0, ou price_status A_VALIDER).
+function needsPriceValidation(med){
+  return (+med?.px_cession||0)<=0 || med?.price_status==='A_VALIDER';
+}
 function ensureLotCoverage(med,lots){
   const tracked=lots.filter(l=>l.med_id===med.id).reduce((s,l)=>s+(+l.quantite||0),0);
   const missing=Math.max(0,(+med.stock||0)-tracked);
@@ -3313,9 +3318,11 @@ VIEW['chef-dashboard'] = (el) => {
   const so=DB.todayItems('soins');
   const rejetsClotureToday=DB.todayItems('audit_logs').filter(l=>l.action==='CLOTURE_REJETEE');
   const totalManqueRejete=rejetsClotureToday.reduce((s,l)=>s+Math.abs(l.details?.ecart||0),0);
+  const toPriceCount=DB.getStock().filter(needsPriceValidation).length;
   el.innerHTML=`
   ${renderCriticalBanner('Médecin-Chef')}
   ${rejetsClotureToday.length?`<div class="al al-err"><strong>🚨 Alerte clôture :</strong> ${rejetsClotureToday.length} rejet(s) aujourd'hui (${fmt(totalManqueRejete)} FCFA de manque cumulé). Vérifier le module Traçabilité.</div>`:''}
+  ${toPriceCount?`<div class="al al-warn" style="cursor:pointer" onclick="showView('chef-prix')"><strong>🏷️ ${toPriceCount} produit(s) sans tarif validé</strong>Des produits ont été créés sans prix. Cliquez pour ouvrir Gestion prix et fixer les prix de cession.</div>`:''}
   <div class="g4">
     <div class="kpi" style="border-left-color:var(--marine)"><div class="kpi-ico">💳</div><div class="kpi-lbl">Total jour</div><div class="kpi-val" style="color:var(--marine)">${fmt(tot)}</div><div class="kpi-sub">FCFA</div></div>
     <div class="kpi" style="border-left-color:var(--cmu)"><div class="kpi-ico">🏥</div><div class="kpi-lbl">Part CNAM</div><div class="kpi-val" style="color:var(--cmu)">${fmt(cnam)}</div></div>
@@ -3678,7 +3685,9 @@ VIEW['chef-alertes'] = (el) => {
   if(!derniereCloture||derniereCloture.date!==today()) alerts.push({t:'warn',titre:'Clôture journalière non effectuée',msg:'La clôture doit être réalisée avant 18h00 chaque jour.'});
   if(derniereCloture&&derniereCloture.ecart!==0) alerts.push({t:'err',titre:`Écart de caisse non résolu : ${fmt(Math.abs(derniereCloture.ecart))} FCFA`,msg:`Date : ${derniereCloture.date} | Obs : ${derniereCloture.observations||'—'}`});
   if(!alerts.length) alerts.push({t:'ok',titre:'Aucune alerte active','msg':'Toutes les vérifications sont satisfaisantes.'});
+  const toPriceCount=stock.filter(needsPriceValidation).length;
   el.innerHTML=`
+  ${toPriceCount?`<div class="al al-warn" style="cursor:pointer" onclick="showView('chef-prix')"><strong>🏷️ ${toPriceCount} produit(s) sans tarif validé</strong>Cliquez pour ouvrir Gestion prix et fixer les prix de cession.</div>`:''}
   <div class="card">
     <div class="card-title">Alertes & Surveillance — Temps réel</div>
     <button class="btn btn-primary btn-sm no-print" onclick="showView('chef-alertes')" style="margin-bottom:10px">Actualiser</button>
@@ -3923,16 +3932,19 @@ VIEW['chef-mensuel'] = (el) => {
 
 // CHEF — Gestion prix (accès exclusif)
 VIEW['chef-prix'] = (el) => {
-  const stock=DB.getStock();
+  // Produits « à valider » (sans prix) remontés en tête de liste.
+  const stock=DB.getStock().slice().sort((a,b)=>(needsPriceValidation(b)?1:0)-(needsPriceValidation(a)?1:0));
+  const toPriceCount=stock.filter(needsPriceValidation).length;
   el.innerHTML=`
   <div class="al al-info"><strong>Accès exclusif Médecin-Chef</strong>Vous pouvez compléter l'EAN, le dosage, la forme, le conditionnement, l'éligibilité CMU et les prix. Toutes les modifications sont tracées.</div>
+  ${toPriceCount?`<div class="al al-warn"><strong>🏷️ ${toPriceCount} produit(s) sans tarif validé</strong>Ils sont surlignés et placés en tête de liste. Renseignez leur prix de cession puis « Sauver ».</div>`:'<div class="al al-ok"><strong>Tous les produits ont un tarif</strong>Aucun prix en attente de validation.</div>'}
   <div class="al al-warn"><strong>Calcul du tarif CMU</strong>Le tarif CMU correspond au prix de cession majoré de 15 % par défaut. Le Médecin-Chef peut modifier cette majoration produit par produit.</div>
   <div class="card">
     <div class="card-title">Paramétrage financier du catalogue</div>
     <div class="tw"><table>
       <tr><th>Code interne</th><th>Produit</th><th>EAN</th><th>Dosage</th><th>Forme</th><th>Conditionnement</th><th>CMU</th><th>Prix acquisition</th><th>Prix cession</th><th>Majoration CMU</th><th>Vente CMU calculée</th><th>Marge bénéficiaire CMU</th><th>Vente hors CMU</th><th>Marge hors CMU</th><th>Seuil</th><th>Action</th></tr>
-      ${stock.map((m,i)=>`<tr>
-        <td style="font-size:10px">${escHtml(m.code_produit||m.source_product_id||'—')}<div style="font-size:9px;color:var(--muted)">ATC ${escHtml(m.code_atc||'—')}</div></td>
+      ${stock.map((m,i)=>`<tr style="${needsPriceValidation(m)?'background:#fff7ed':''}">
+        <td style="font-size:10px">${escHtml(m.code_produit||m.source_product_id||'—')}${needsPriceValidation(m)?'<div><span class="badge b-warn">À VALIDER</span></div>':''}<div style="font-size:9px;color:var(--muted)">ATC ${escHtml(m.code_atc||'—')}</div></td>
         <td style="font-size:11px;font-weight:700;min-width:180px">${escHtml(m.nom||'—')}<div style="font-size:9px;color:var(--muted)">${escHtml(m.dci||'')}</div></td>
         <td><input type="text" id="ean-${m.id}" value="${escHtml(m.code_ean||'')}" inputmode="numeric" maxlength="14" placeholder="8, 12, 13 ou 14 chiffres" style="width:125px" oninput="this.value=normalizeEan(this.value)"></td>
         <td><input type="text" id="dosage-${m.id}" value="${escHtml(m.dosage||'')}" placeholder="Ex. 500 mg" style="width:105px"></td>
