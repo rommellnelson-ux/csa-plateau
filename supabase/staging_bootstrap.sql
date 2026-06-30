@@ -152,6 +152,9 @@ begin
   elsif new.table_name in ('transactions','soins','labo_actes','pharma_ventes') then
     if (p->>'montant') ~ '^\s*-' then raise exception 'csa: montant négatif interdit'; end if;
     if (p->>'total')   ~ '^\s*-' then raise exception 'csa: total négatif interdit'; end if;
+  elsif new.table_name = 'pharma_stock' then
+    if (p->>'stock') ~ '^-?[0-9]+(\.[0-9]+)?$' then v:=(p->>'stock')::numeric;
+      if v < 0 then raise exception 'csa: stock négatif interdit: %', v; end if; end if;
   end if;
   return new;
 end; $fn$;
