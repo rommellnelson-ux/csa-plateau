@@ -39,10 +39,15 @@ signée). **Aucune modification de comportement.**
   un `pharma_mouvements` `type='OUVERTURE'` par médicament (quantité = solde à la
   date d'origine), de sorte que `sum_quantite` = stock courant. Re-lancer le
   rapport B0 jusqu'à `delta = 0`.
-- **B2 — Lecture dérivée, STAGING uniquement.** Helper front `deriveStock(med, mouvements)`
-  + bascule des lectures de stock derrière le flag `CSA_ENV==='staging'`
-  (`?env=staging`). Prod **strictement inchangée** (compteur + anti-écrasement
-  conservés). Valider en staging (ventes, réappro, inventaire, hors-ligne).
+- **B2 — Lecture dérivée, STAGING uniquement. ✅ FAIT.** Helper front
+  `deriveStock(medId, mouvements)` (solde = `stock_apres` du dernier mouvement,
+  `app.js`) + `DB.getStock()` renvoie le stock dérivé **seulement si**
+  `CSA_ENV==='staging'`. Prod **strictement inchangée** (compteur + anti-écrasement
+  conservés — un seul point modifié, toutes les lectures passent par getStock).
+  Parité couverte par `tests.html` (3 assertions `deriveStock`).
+  **À valider en staging** (`?env=staging`, pack de test pharmacie) : inventorier
+  un produit → vendre → réappro → vérifier que le stock affiché suit le registre,
+  y compris hors-ligne. Tant que ça n'est pas validé : ne PAS passer à B3.
 - **B3 — `pharma_stock` immuable.** Une fois le dérivé prouvé en staging : retirer
   `pharma_stock` de `MUTABLE_TABLES` (`app.js:84`) → supprime l'anti-écrasement du
   stock, `pharma_stock` devient catalogue append-only. Adapter `csa_commit` (le

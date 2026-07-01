@@ -113,6 +113,15 @@ const TEST_SRC = `(function(){
       ok('FEFO: consomme le lot perimant le plus tot en premier', alloc[0].lot_id==='L1'); }
     { let threw=false; try{ consumeLots({id:'My',nom:'Y',stock:0},[{id:'L',med_id:'My',quantite:2,date_peremption:'2027-01-01'}],10); }catch(e){ threw=true; }
       ok('Survente bloquee: consumeLots jette si lots insuffisants', threw===true); }
+
+    // ─── Option B (stock dérivé) : deriveStock = stock_apres du dernier mouvement ───
+    { const mvs=[
+        {med_id:'A',stock_apres:'10',created_at:'2026-07-01T08:00:00Z'},
+        {med_id:'A',stock_apres:'7', created_at:'2026-07-01T09:00:00Z'},
+        {med_id:'B',stock_apres:'3', created_at:'2026-07-01T08:30:00Z'}];
+      ok('deriveStock: solde = dernier stock_apres (med A -> 7)', deriveStock('A',mvs)===7);
+      ok('deriveStock: med B -> 3', deriveStock('B',mvs)===3);
+      ok('deriveStock: med sans mouvement -> 0', deriveStock('Z',mvs)===0); }
   }catch(e){ ok('exception fatale: '+e.message, false); }
   return results;
 })()`;

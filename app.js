@@ -328,9 +328,17 @@ const DB = {
   today:()=>new Date().toISOString().slice(0,10),
   todayItems:(k)=>DB.get(k).filter(i=>i.created_at&&i.created_at.startsWith(DB.today())),
   getStock:()=>{
-    return DB.get('pharma_stock')
+    const rows=DB.get('pharma_stock')
       .filter(m=>m.active!==false&&!isDemoMedicineId(m.id))
       .map(m=>({...m,px_na:(m.px_na??m.px_cession)}));
+    // Option B2 (STAGING uniquement) : stock dérivé du registre append-only
+    // pharma_mouvements. Prod inchangée : le compteur pharma_stock.stock reste la
+    // source de vérité. Permet de valider la dérivation avant toute bascule prod.
+    if(CSA_ENV==='staging'){
+      const mvs=DB.get('pharma_mouvements');
+      return rows.map(m=>({...m,stock:deriveStock(m.id,mvs)}));
+    }
+    return rows;
   },
   setStock:(stock)=>{
     if(!CURRENT_AGENT) throw new Error('Session authentifiée requise');
@@ -736,6 +744,18 @@ function recordStockMovement(data){
     reference:data.reference||'',
     date:today()
   });
+}
+// Option B (stock dérivé) : le solde d'un médicament = stock_apres du DERNIER
+// mouvement (pharma_mouvements est un running-balance ; inventaire/réappro/vente
+// y écrivent tous). 0 si aucun mouvement. Utilisé EN LECTURE quand
+// CSA_ENV==='staging' (voir DB.getStock) ; la prod garde le compteur pharma_stock.
+function deriveStock(medId, mouvements){
+  let last=null;
+  for(const m of mouvements){
+    if(m.med_id!==medId) continue;
+    if(!last || String(m.created_at||'')>=String(last.created_at||'')) last=m;
+  }
+  return last?(+last.stock_apres||0):0;
 }
 // Identifiant unique d'événement client (UUID v4) pour la synchro idempotente.
 function newClientEventId(){
