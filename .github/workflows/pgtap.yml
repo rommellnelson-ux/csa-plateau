@@ -33,13 +33,12 @@ jobs:
       - name: Bootstrap (stub auth + extensions)
         run: sudo -u postgres psql -v ON_ERROR_STOP=1 -f supabase/tests/ci_bootstrap.sql
 
-      - name: Appliquer les migrations (dans l'ordre)
-        run: |
-          set -e
-          for f in $(ls supabase/migrations/*.sql | sort); do
-            echo "── apply ${f}"
-            sudo -u postgres psql -v ON_ERROR_STOP=1 -f "${f}"
-          done
+      # Le schéma applicatif de base (csa_events/csa_profiles) est créé HORS
+      # migrations (les migrations ne font que l'ALTER). On applique le snapshot
+      # consolidé staging_bootstrap.sql, qui porte tables + fonctions + triggers +
+      # policies à jour (validate, csa_commit, can_write aal2, client_event_id…).
+      - name: Appliquer le schéma (staging_bootstrap)
+        run: sudo -u postgres psql -v ON_ERROR_STOP=1 -f supabase/staging_bootstrap.sql
 
       - name: Seed chef de test
         run: sudo -u postgres psql -v ON_ERROR_STOP=1 -f supabase/tests/ci_seed.sql
