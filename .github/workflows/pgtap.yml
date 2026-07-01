@@ -1,0 +1,50 @@
+name: pgTAP (serveur)
+
+# Rejoue les tests serveur pgTAP sur un Postgres jetable : applique le stub auth,
+# toutes les migrations, seed un chef de test, puis lance supabase/tests/*.sql.
+# Séparé de la CI navigateur (tests.yml) : n'affecte pas browser-tests.
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  pgtap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Démarrer PostgreSQL + installer pgTAP
+        run: |
+          set -e
+          sudo systemctl start postgresql || sudo service postgresql start || true
+          PGVER=$(pg_lsclusters -h | awk 'NR==1{print $1}')
+          echo "Cluster PostgreSQL détecté : ${PGVER}"
+          if ! sudo apt-get install -y "postgresql-${PGVER}-pgtap"; then
+            echo "→ pgTAP absent des dépôts par défaut, ajout du dépôt PGDG"
+            sudo sh -c "echo \"deb https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main\" > /etc/apt/sources.list.d/pgdg.list"
+            curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg
+            sudo apt-get update
+            sudo apt-get install -y "postgresql-${PGVER}-pgtap"
+          fi
+          sudo -u postgres psql -c "select version();"
+
+      - name: Bootstrap (stub auth + extensions)
+        run: sudo -u postgres psql -v ON_ERROR_STOP=1 -f supabase/tests/ci_bootstrap.sql
+
+      - name: Appliquer les migrations (dans l'ordre)
+        run: |
+          set -e
+          for f in $(ls supabase/migrations/*.sql | sort); do
+            echo "── apply ${f}"
+            sudo -u postgres psql -v ON_ERROR_STOP=1 -f "${f}"
+          done
+
+      - name: Seed chef de test
+        run: sudo -u postgres psql -v ON_ERROR_STOP=1 -f supabase/tests/ci_seed.sql
+
+      - name: Tests pgTAP
+        env:
+          PSQL: "sudo -u postgres psql"
+        run: bash tests/run_pgtap.sh

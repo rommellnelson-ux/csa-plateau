@@ -1,0 +1,7 @@
+# Fins de ligne LF garanties pour les fichiers exécutés côté serveur/CI
+# (un script bash en CRLF casse en CI : « $'\r': command not found »).
+*.sh   text eol=lf
+*.sql  text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.mjs  text eol=lf
