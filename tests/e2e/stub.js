@@ -27,6 +27,7 @@
       single: async () => {
         await lat();
         if (nom === 'csa_profiles') { C.profil++;
+          if (S.latenceProfil) await sleep(S.latenceProfil);
           if (S.profilErreur) return { data: null, error: S.profilErreur };
           return { data: profil, error: null }; }
         return { data: null, error: null };
@@ -75,6 +76,8 @@
           },
           unenroll: async (a) => {
             C.unenroll++; C.unenrolled.push(a.factorId); await lat();
+            // Echec cible : succes des N premiers desenrolements, puis erreur (test de suppression partielle)
+            if (S.unenrollFailAfter != null && C.unenroll > S.unenrollFailAfter) return { error: { message: 'unenroll failed' } };
             if (S.unenrollErreur) return { error: S.unenrollErreur };
             facteurs.all = facteurs.all.filter((f) => f.id !== a.factorId);
             facteurs.totp = (facteurs.totp || []).filter((f) => f.id !== a.factorId);

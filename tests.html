@@ -181,14 +181,26 @@ const TEST_SRC = `(async function(){
     ok('AAL2 -> acces accorde', rAal2===true && MFA_STATE.etat===MFA_ETATS.AAL2_OK);
     ok('AAL2 -> aucun enroll', a.enroll===0);
 
-    // Erreur reseau transitoire
+    // Erreur reseau transitoire a l'entree initiale (ecran MFA non encore ouvert -> message sur l'ecran de connexion)
+    document.getElementById('mfa-screen').style.display='none';   // simuler une entree fraiche
+    document.getElementById('auth-error').textContent='';
     a=simuler({all:[],totp:[],phone:[]},{aalErreur:{message:'network timeout'}}); resetAuthLocks();
     const rNet=await requireChiefMfa();
     ok('reseau KO -> etat recuperable', MFA_STATE.etat===MFA_ETATS.ERREUR_RECUPERABLE);
     ok('reseau KO -> pas d acces', rNet===false);
-    ok('reseau KO -> message reseau', document.getElementById('auth-error').textContent.indexOf('Réseau')>-1);
+    ok('reseau KO -> message reseau (ecran connexion)', document.getElementById('auth-error').textContent.indexOf('Réseau')>-1);
     ok('reseau KO -> aucun facteur touche', a.enroll===0 && a.unenroll===0);
     ok('reseau KO -> nouvel essai possible', document.getElementById('auth-submit').disabled===false);
+
+    // Erreur MFA APRES ouverture de l'ecran MFA -> message sur l'ecran MFA, pas dans #auth-error cache (R2-A)
+    document.getElementById('mfa-screen').style.display='flex';
+    document.getElementById('auth-error').textContent='';
+    document.getElementById('mfa-error').textContent='';
+    a=simuler({all:[],totp:[],phone:[]},{aalErreur:{message:'network timeout'}}); resetAuthLocks();
+    document.getElementById('mfa-screen').style.display='flex';   // resetAuthLocks ne touche pas l'affichage
+    await requireChiefMfa();
+    ok('erreur sur ecran MFA -> #mfa-error rempli', document.getElementById('mfa-error').textContent.length>0);
+    ok('erreur sur ecran MFA -> #auth-error vide', document.getElementById('auth-error').textContent==='');
 
     // Conflit de nom -> bascule en reprise (et non en impasse)
     a=simuler({all:[F('FX','unverified')],totp:[],phone:[]},{enrollErreur:{code:'mfa_factor_name_conflict'}});

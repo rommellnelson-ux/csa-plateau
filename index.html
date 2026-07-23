@@ -270,6 +270,7 @@ body.compact #content[data-view="cpt-caisse"] .g2{gap:8px;}
     <form id="mfa-form" onsubmit="verifyChiefMfa(event)">
       <div class="fr"><label for="mfa-code">Code à 6 chiffres</label><input id="mfa-code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required></div>
       <button class="btn btn-primary" id="mfa-submit" type="submit" style="width:100%">Valider</button>
+      <button class="btn btn-out" type="button" id="mfa-restart-inline" onclick="mfaRecommencer()" style="display:none;width:100%;margin-top:8px;color:var(--marine);border-color:var(--border)">Je n'ai plus l'entrée : recommencer la configuration</button>
       <button class="btn btn-out" type="button" onclick="logout()" style="width:100%;margin-top:8px;color:var(--marine);border-color:var(--border)">Annuler et se déconnecter</button>
       <div class="pin-error" id="mfa-error" role="alert"></div>
     </form>

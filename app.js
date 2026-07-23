@@ -422,13 +422,35 @@ async function authLogin(event){
 // empeche deux chargements concurrents (cause du conflit mfa_factor_name_conflict).
 let AUTH_BOOTSTRAP=null;      // {userId, promesse}
 let MFA_EN_COURS=null;        // promesse partagee du parcours MFA
-function resetAuthLocks(){
-  AUTH_BOOTSTRAP=null; MFA_EN_COURS=null; MFA_STATE=null;
-  // Aucun secret ni QR ne doit subsister dans le DOM apres deconnexion.
+let AUTH_GEN=0;              // jeton de generation : invalide tout chargement de session obsolete
+// Aucun secret TOTP ni QR ne doit subsister dans le DOM (deconnexion OU enrolement valide).
+function purgerSecretsMfaDom(){
   const s=document.getElementById('mfa-secret'); if(s) s.textContent='';
   const q=document.getElementById('mfa-qr'); if(q) q.removeAttribute('src');
   const l=document.getElementById('mfa-select-list'); if(l) l.innerHTML='';
   const c=document.getElementById('mfa-code'); if(c) c.value='';
+}
+function resetAuthLocks(){
+  AUTH_BOOTSTRAP=null; MFA_EN_COURS=null; MFA_STATE=null; AUTH_GEN++;
+  purgerSecretsMfaDom();
+}
+// Erreur MFA recuperable : afficher le message sur l'ecran REELLEMENT visible (l'ecran
+// MFA s'il est ouvert, sinon l'ecran de connexion) et reactiver le bon bouton. Sans cela,
+// une erreur survenue apres l'ouverture de l'ecran MFA etait ecrite dans #auth-error, cache.
+function signalerErreurMfaRecuperable(err){
+  MFA_STATE={etat:MFA_ETATS.ERREUR_RECUPERABLE};
+  const texte=messageErreurMfa(err);
+  const ecran=document.getElementById('mfa-screen');
+  const mfaVisible=!!ecran&&getComputedStyle(ecran).display!=='none';
+  if(mfaVisible){
+    const surChoix=document.getElementById('mfa-choice')?.style.display==='block';
+    afficherErreurMfa(texte, surChoix?'choice':'mfa');
+    const r=document.getElementById('mfa-restart'); if(r) r.disabled=false;
+    const s=document.getElementById('mfa-submit'); if(s) s.disabled=false;
+  }else{
+    const ae=document.getElementById('auth-error'); if(ae) ae.textContent=texte;
+    const as=document.getElementById('auth-submit'); if(as) as.disabled=false;
+  }
 }
 
 function bootstrapAuthenticatedSession(session,source){
@@ -439,6 +461,9 @@ function bootstrapAuthenticatedSession(session,source){
     if(MFA_DEBUG) console.debug('[auth] bootstrap deja en vol, source ignoree:',source);
     return AUTH_BOOTSTRAP.promesse;
   }
+  // Changement d'utilisateur pendant un chargement : invalider l'ancien via le jeton et
+  // liberer le verrou MFA global, pour qu'il ne soit pas reutilise entre deux identites.
+  if(AUTH_BOOTSTRAP&&AUTH_BOOTSTRAP.userId!==uid){ AUTH_GEN++; MFA_EN_COURS=null; }
   if(MFA_DEBUG) console.debug('[auth] bootstrap demarre par:',source);
   const promesse=loadAuthenticatedProfile(session)
     .finally(()=>{ if(AUTH_BOOTSTRAP&&AUTH_BOOTSTRAP.userId===uid) AUTH_BOOTSTRAP=null; });
@@ -448,9 +473,11 @@ function bootstrapAuthenticatedSession(session,source){
 
 async function loadAuthenticatedProfile(session){
   if(!session?.user) return false;
+  const gen=AUTH_GEN;   // instantane : un logout ou un changement d'utilisateur invalide ce chargement
   const {data,error}=await supa.from('csa_profiles')
     .select('agent_code,display_name,job_title,module,permissions,building,is_chef,active')
     .eq('user_id',session.user.id).single();
+  if(gen!==AUTH_GEN) return false;   // session deconnectee/remplacee pendant la lecture -> ne rien reanimer
   if(error||!data?.active||!MODULE_TABS[data.module]){
     // On distingue un echec de lecture (reseau/RLS) d'un profil reellement invalide :
     // un a-coup reseau ne doit plus provoquer une deconnexion silencieuse.
@@ -476,7 +503,11 @@ async function loadAuthenticatedProfile(session){
     userId:session.user.id
   };
   const needsMfa=CURRENT_AGENT.isChef||['sevci_med','sevci_data','sevci_sup'].some(r=>CURRENT_AGENT.permissions.includes(r));
-  if(needsMfa&&!(await requireChiefMfa())) return false;
+  if(needsMfa){
+    const ok=await requireChiefMfa();
+    if(gen!==AUTH_GEN) return false;   // deconnexion/changement pendant le parcours MFA -> ne pas demarrer l'app
+    if(!ok) return false;
+  }
   startApp();
   await pullFromCloud();
   await syncQueue();
@@ -547,22 +578,13 @@ async function listerTousLesFacteursMfa(){
 async function requireChiefMfa(){
   if(MFA_EN_COURS){ if(MFA_DEBUG) console.debug('[mfa] appel concurrent -> promesse partagee'); return MFA_EN_COURS; }
   MFA_EN_COURS=(async()=>{
+   try{
     const {data:aal,error:aalError}=await supa.auth.mfa.getAuthenticatorAssuranceLevel();
-    if(aalError){
-      MFA_STATE={etat:MFA_ETATS.ERREUR_RECUPERABLE};
-      document.getElementById('auth-error').textContent=messageErreurMfa(aalError);
-      document.getElementById('auth-submit').disabled=false;
-      return false;
-    }
+    if(aalError){ signalerErreurMfaRecuperable(aalError); return false; }
     if(aal.currentLevel==='aal2'){ MFA_STATE={etat:MFA_ETATS.AAL2_OK}; return true; }
 
     const {verifies:verifiesLus,nonVerifies:nonVerifiesLus,error:factorsError}=await listerTousLesFacteursMfa();
-    if(factorsError){
-      MFA_STATE={etat:MFA_ETATS.ERREUR_RECUPERABLE};
-      document.getElementById('auth-error').textContent=messageErreurMfa(factorsError);
-      document.getElementById('auth-submit').disabled=false;
-      return false;
-    }
+    if(factorsError){ signalerErreurMfaRecuperable(factorsError); return false; }
     const verifies=verifiesLus||[];
     const nonVerifies=nonVerifiesLus||[];
 
@@ -598,6 +620,13 @@ async function requireChiefMfa(){
     // 4) Aucun facteur : premier enrolement.
     MFA_STATE={etat:MFA_ETATS.ENROLEMENT_EN_COURS};
     return await enrolerNouveauFacteur(verifies.length===0?'principal':'secours');
+   }catch(e){
+    // Toute exception inattendue (DOM, SDK) devient une erreur recuperable visible,
+    // sans laisser CURRENT_AGENT/MFA dans un etat fige.
+    if(MFA_DEBUG) console.debug('[mfa] exception:',e&&e.message);
+    signalerErreurMfaRecuperable(e);
+    return false;
+   }
   })().finally(()=>{ MFA_EN_COURS=null; });
   return MFA_EN_COURS;
 }
@@ -618,9 +647,7 @@ async function enrolerNouveauFacteur(rang){
         return false;
       }
     }
-    MFA_STATE={etat:MFA_ETATS.ERREUR_RECUPERABLE};
-    document.getElementById('auth-error').textContent=messageErreurMfa(enrollError);
-    document.getElementById('auth-submit').disabled=false;
+    signalerErreurMfaRecuperable(enrollError);
     return false;
   }
   MFA_STATE={factorId:enrollment.id,mode:'enroll',etat:MFA_ETATS.ENROLEMENT_EN_COURS};
@@ -650,17 +677,29 @@ async function mfaRecommencer(){
   for(const id of ids){
     const {error}=await supa.auth.mfa.unenroll({factorId:id});
     if(error){
+      // Echec en cours de suppression : relire l'etat reel et CONSERVER les ids restants,
+      // sinon le bouton « Recommencer » devenait inerte (plus aucun id a supprimer).
       document.getElementById('mfa-restart').disabled=false;
-      MFA_STATE={etat:MFA_ETATS.RECUPERATION_ADMIN_REQUISE};
-      afficherErreurMfa('Suppression impossible. Une intervention administrateur est nécessaire.','choice');
+      const {nonVerifies:reste2}=await listerTousLesFacteursMfa();
+      const ids2=(reste2||[]).map(f=>f.id);
+      if(ids2.length){
+        MFA_STATE={factorIds:ids2,mode:'choix',etat:MFA_ETATS.FACTEUR_NON_VERIFIE_REDEMARRAGE_REQUIS};
+        showMfaScreen('choix');
+        afficherErreurMfa('Suppression incomplète. Réessayez « Recommencer la configuration ».','choice');
+      }else{
+        MFA_STATE={etat:MFA_ETATS.RECUPERATION_ADMIN_REQUISE};
+        afficherErreurMfa('Suppression impossible. Une intervention administrateur est nécessaire.','choice');
+      }
       return;
     }
   }
   const {nonVerifies:reste,verifies:restants}=await listerTousLesFacteursMfa();
   if((reste||[]).length>0){
+    // Incoherence serveur : conserver les ids pour permettre un nouvel essai du bouton.
     document.getElementById('mfa-restart').disabled=false;
-    MFA_STATE={etat:MFA_ETATS.RECUPERATION_ADMIN_REQUISE};
-    afficherErreurMfa('Configuration incomplète persistante. Contactez l’administrateur.','choice');
+    MFA_STATE={factorIds:reste.map(f=>f.id),mode:'choix',etat:MFA_ETATS.FACTEUR_NON_VERIFIE_REDEMARRAGE_REQUIS};
+    showMfaScreen('choix');
+    afficherErreurMfa('Configuration incomplète persistante. Réessayez ou contactez l’administrateur.','choice');
     return;
   }
   document.getElementById('mfa-restart').disabled=false;
@@ -712,6 +751,10 @@ function showMfaScreen(mode,options){
   const redemarrageSeul=MFA_STATE?.etat===MFA_ETATS.FACTEUR_NON_VERIFIE_REDEMARRAGE_REQUIS;
   const boutonReprise=document.getElementById('mfa-resume');
   if(boutonReprise) boutonReprise.style.display=redemarrageSeul?'none':'block';
+  // Reprise d'un facteur inacheve : offrir aussi « Recommencer » sur l'ecran de code,
+  // sinon un utilisateur ayant perdu son entree Authenticator restait bloque (sortie = logout).
+  const restartInline=document.getElementById('mfa-restart-inline');
+  if(restartInline) restartInline.style.display=(mode==='challenge'&&options&&options.reprise)?'block':'none';
   document.getElementById('mfa-instructions').textContent=
     estEnroll     ? 'Première connexion : scannez le QR code ci-dessous, puis saisissez les 6 chiffres.'
     : estSelection? 'Plusieurs méthodes de sécurité sont enregistrées. Choisissez celle à utiliser.'
@@ -729,7 +772,7 @@ function showMfaScreen(mode,options){
 }
 async function verifyChiefMfa(event){
   event.preventDefault();
-  if(!MFA_STATE) return;
+  if(!MFA_STATE||!MFA_STATE.factorId) return;   // aucun facteur cible (ex. ecran de selection) -> ignorer
   const submit=document.getElementById('mfa-submit');
   const errorEl=document.getElementById('mfa-error');
   const code=document.getElementById('mfa-code').value.trim();
@@ -746,6 +789,7 @@ async function verifyChiefMfa(event){
     return;
   }
   MFA_STATE=null;
+  purgerSecretsMfaDom();   // le secret/QR ne doivent pas rester dans le DOM apres validation
   document.getElementById('mfa-screen').style.display='none';
   submit.disabled=false;
   startApp();
@@ -4730,22 +4774,24 @@ updateSyncStatus();
 if(supa){
   supa.auth.onAuthStateChange((event,session)=>{
     setTimeout(async()=>{
-      if(event==='SIGNED_OUT'){
-        CURRENT_AGENT=null;
-        resetAuthLocks();
-        document.getElementById('mfa-screen').style.display='none';
-        document.getElementById('app').style.display='none';
-        document.getElementById('auth-screen').style.display='flex';
-        document.getElementById('auth-submit').disabled=false;
-        return;
-      }
-      // Garde commune : les deux chemins passent par le meme single-flight.
-      if(session&&!CURRENT_AGENT) await bootstrapAuthenticatedSession(session,'onAuthStateChange:'+event);
+      try{
+        if(event==='SIGNED_OUT'){
+          CURRENT_AGENT=null;
+          resetAuthLocks();
+          document.getElementById('mfa-screen').style.display='none';
+          document.getElementById('app').style.display='none';
+          document.getElementById('auth-screen').style.display='flex';
+          document.getElementById('auth-submit').disabled=false;
+          return;
+        }
+        // Garde commune : les deux chemins passent par le meme single-flight.
+        if(session&&!CURRENT_AGENT) await bootstrapAuthenticatedSession(session,'onAuthStateChange:'+event);
+      }catch(e){ if(MFA_DEBUG) console.debug('[auth] onAuthStateChange erreur:',e&&e.message); }
     },0);
   });
   supa.auth.getSession().then(({data})=>{
-    if(data.session&&!CURRENT_AGENT) bootstrapAuthenticatedSession(data.session,'getSession');
-  });
+    if(data.session&&!CURRENT_AGENT) return bootstrapAuthenticatedSession(data.session,'getSession');
+  }).catch(e=>{ if(MFA_DEBUG) console.debug('[auth] getSession erreur:',e&&e.message); });
 }else{
   document.getElementById('auth-error').textContent='Service sécurisé indisponible.';
   document.getElementById('auth-submit').disabled=true;

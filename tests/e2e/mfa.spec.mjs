@@ -218,3 +218,80 @@ test.describe('MFA — erreurs reseau et codes', () => {
     expect(await page.evaluate(() => MFA_EN_COURS)).toBeFalsy();  // verrou libere
   });
 });
+
+// ── Correctifs issus de la revue adversariale de la PR #19 ───────────────────
+test.describe('MFA — correctifs revue', () => {
+
+  // R3-F1 : le secret TOTP / QR ne doivent pas rester dans le DOM apres une validation reussie.
+  test('P11 secret et QR purges du DOM apres validation reussie', async ({ page }) => {
+    await ouvrir(page, { facteurs: { all: [], totp: [] } });
+    expect(await page.evaluate(() => document.getElementById('mfa-secret').textContent)).toContain('SECRET-SIMULE');
+    await page.fill('#mfa-code', '123456');
+    await page.click('#mfa-submit');
+    await page.waitForTimeout(600);
+    expect(await visible(page, 'app')).toBe('flex');
+    expect(await page.evaluate(() => document.getElementById('mfa-secret').textContent)).toBe('');
+    expect(await page.evaluate(() => document.getElementById('mfa-qr').getAttribute('src'))).toBeNull();
+  });
+
+  // R2-A : une erreur d'enrolement survenue APRES l'ouverture de l'ecran MFA doit s'afficher
+  // sur l'ecran MFA (pas dans #auth-error cache), et l'ecran MFA doit rester visible.
+  test('P12 erreur enrolement pendant Recommencer : message visible, pas de freeze', async ({ page }) => {
+    await ouvrir(page, { facteurs: { all: [F('F1', 'unverified')], totp: [] }, enrollErreur: { message: 'server error 500' } });
+    expect(await visible(page, 'mfa-choice')).toBe('block');
+    page.on('dialog', (d) => d.accept());
+    await page.click('#mfa-restart');
+    await page.waitForTimeout(600);
+    expect(await visible(page, 'mfa-screen')).toBe('flex');            // ecran MFA toujours visible
+    expect(await page.textContent('#mfa-choice-error')).not.toBe('');  // message visible sur l'ecran MFA
+    expect(await page.textContent('#auth-error')).toBe('');            // rien ecrit dans l'element cache
+  });
+
+  // R2-D : sur l'ecran de saisie du code en mode reprise, un bouton « Recommencer » doit exister.
+  test('P13 ecran de code en reprise : bouton Recommencer accessible', async ({ page }) => {
+    await ouvrir(page, { facteurs: { all: [F('F1', 'unverified')], totp: [] } });
+    await page.click('#mfa-resume');
+    expect(await visible(page, 'mfa-restart-inline')).toBe('block');
+  });
+
+  // R2-B : une suppression partielle ne doit pas rendre le bouton « Recommencer » inerte :
+  // les ids restants sont conserves et un nouvel essai reste possible.
+  test('P14 suppression partielle : factorIds conserves, bouton reactive', async ({ page }) => {
+    await ouvrir(page, { facteurs: { all: [F('U1', 'unverified'), F('U2', 'unverified')], totp: [] }, unenrollFailAfter: 1 });
+    expect(await etat(page)).toBe('FACTEUR_NON_VERIFIE_REDEMARRAGE_REQUIS');
+    page.on('dialog', (d) => d.accept());
+    await page.click('#mfa-restart');
+    await page.waitForTimeout(600);
+    const ids = await page.evaluate(() => (MFA_STATE && MFA_STATE.factorIds) ? MFA_STATE.factorIds.length : 0);
+    expect(ids).toBeGreaterThan(0);                                                     // ids restants conserves
+    expect(await page.evaluate(() => document.getElementById('mfa-restart').disabled)).toBe(false); // retry possible
+  });
+
+  // R2-E : verifyChiefMfa sans facteur cible (ecran de selection) ne doit rien tenter.
+  test('P16 selection : verifyChiefMfa sans factorId ne verifie rien', async ({ page }) => {
+    const fa = F('FA', 'verified', 'CSA Plateau - SEV-CI principal');
+    const fb = F('FB', 'verified', 'CSA Plateau - SEV-CI secours');
+    await ouvrir(page, { facteurs: { all: [fa, fb], totp: [fa, fb] } });
+    expect(await etat(page)).toBe('CHOIX_FACTEUR_VERIFIE');
+    const before = (await appels(page)).challengeAndVerify;
+    await page.evaluate(() => verifyChiefMfa({ preventDefault() {} }));
+    await page.waitForTimeout(200);
+    expect((await appels(page)).challengeAndVerify).toBe(before);   // aucun appel malgre l'absence de factorId
+  });
+});
+
+// R1-C : un logout pendant la lecture du profil ne doit pas reanimer CURRENT_AGENT / ouvrir l'app.
+test.describe('MFA — cycle de vie de session', () => {
+  test('P15 logout pendant le chargement du profil : aucune reanimation', async ({ page }) => {
+    await page.addInitScript((s) => { window.__SCENARIO__ = s; }, { facteurs: { all: [], totp: [] }, latenceProfil: 600 });
+    await page.route('**/supabase-js@**', (r) => r.fulfill({ contentType: 'application/javascript', body: STUB }));
+    await page.route('**/chart.umd.min.js', (r) => r.fulfill({ contentType: 'application/javascript', body: 'window.Chart=function(){};' }));
+    await page.goto(BASE + '/index.html', { waitUntil: 'load' });
+    await page.waitForFunction(() => typeof window.__CALLS__ === 'object', null, { timeout: 10000 });
+    await page.waitForTimeout(150);                       // lecture du profil en cours (600 ms)
+    await page.evaluate(() => supa.auth.signOut());       // deconnexion pendant la lecture
+    await page.waitForTimeout(900);                       // le profil se resout apres coup
+    expect(await page.evaluate(() => (typeof CURRENT_AGENT === 'undefined' ? null : CURRENT_AGENT))).toBeNull();
+    expect(await visible(page, 'app')).toBe('none');
+  });
+});
