@@ -280,6 +280,42 @@ test.describe('MFA — correctifs revue', () => {
   });
 });
 
+// Regressions du correctif lui-meme (2e passe de revue) : un logout pendant une attente
+// reseau MFA ne doit ni reafficher l'ecran MFA (requireChiefMfa) ni demarrer l'app (verifyChiefMfa).
+test.describe('MFA — cycle de vie pendant l attente MFA', () => {
+  async function ouvrirAvec(page, scenario) {
+    await page.addInitScript((s) => { window.__SCENARIO__ = s; }, scenario);
+    await page.route('**/supabase-js@**', (r) => r.fulfill({ contentType: 'application/javascript', body: STUB }));
+    await page.route('**/chart.umd.min.js', (r) => r.fulfill({ contentType: 'application/javascript', body: 'window.Chart=function(){};' }));
+    await page.goto(BASE + '/index.html', { waitUntil: 'load' });
+    await page.waitForFunction(() => typeof window.__CALLS__ === 'object', null, { timeout: 10000 });
+  }
+
+  // Item 4 (revue) : logout pendant l'attente de getAuthenticatorAssuranceLevel/listFactors.
+  test('P17 logout pendant l attente MFA : ecran MFA non reaffiche', async ({ page }) => {
+    await ouvrirAvec(page, { facteurs: { all: [F('F1', 'unverified')], totp: [] }, latenceAal: 700 });
+    await page.waitForTimeout(150);                   // requireChiefMfa attend getAAL (700 ms)
+    await page.evaluate(() => supa.auth.signOut());   // deconnexion pendant l'attente
+    await page.waitForTimeout(1000);
+    expect(await visible(page, 'mfa-screen')).toBe('none');    // pas de reaffichage
+    expect(await visible(page, 'auth-screen')).toBe('flex');   // ecran de connexion
+    expect(await page.evaluate(() => (MFA_STATE && MFA_STATE.factorId) ? MFA_STATE.factorId : null)).toBeNull();
+  });
+
+  // Complement : logout pendant challengeAndVerify -> l'app ne doit pas demarrer.
+  test('P18 logout pendant la verification : app non demarree', async ({ page }) => {
+    await ouvrirAvec(page, { facteurs: { all: [], totp: [] }, latenceVerify: 700 });
+    await page.waitForFunction(() => (typeof MFA_STATE !== 'undefined' && MFA_STATE && MFA_STATE.factorId), null, { timeout: 10000 });
+    await page.fill('#mfa-code', '123456');
+    await page.click('#mfa-submit');                  // challengeAndVerify attend 700 ms
+    await page.waitForTimeout(150);
+    await page.evaluate(() => supa.auth.signOut());    // deconnexion pendant la verification
+    await page.waitForTimeout(1000);
+    expect(await visible(page, 'app')).toBe('none');           // app NON demarree
+    expect(await visible(page, 'auth-screen')).toBe('flex');
+  });
+});
+
 // R1-C : un logout pendant la lecture du profil ne doit pas reanimer CURRENT_AGENT / ouvrir l'app.
 test.describe('MFA — cycle de vie de session', () => {
   test('P15 logout pendant le chargement du profil : aucune reanimation', async ({ page }) => {

@@ -577,6 +577,7 @@ async function listerTousLesFacteursMfa(){
 // Verrou partage : une seule instance manipule les facteurs a la fois.
 async function requireChiefMfa(){
   if(MFA_EN_COURS){ if(MFA_DEBUG) console.debug('[mfa] appel concurrent -> promesse partagee'); return MFA_EN_COURS; }
+  const genMfa=AUTH_GEN;   // deconnexion/changement pendant l'attente reseau -> ne pas (re)afficher l'ecran MFA
   MFA_EN_COURS=(async()=>{
    try{
     const {data:aal,error:aalError}=await supa.auth.mfa.getAuthenticatorAssuranceLevel();
@@ -585,6 +586,7 @@ async function requireChiefMfa(){
 
     const {verifies:verifiesLus,nonVerifies:nonVerifiesLus,error:factorsError}=await listerTousLesFacteursMfa();
     if(factorsError){ signalerErreurMfaRecuperable(factorsError); return false; }
+    if(genMfa!==AUTH_GEN) return false;   // session invalidee pendant l'attente -> ne rien reafficher
     const verifies=verifiesLus||[];
     const nonVerifies=nonVerifiesLus||[];
 
@@ -619,7 +621,7 @@ async function requireChiefMfa(){
     }
     // 4) Aucun facteur : premier enrolement.
     MFA_STATE={etat:MFA_ETATS.ENROLEMENT_EN_COURS};
-    return await enrolerNouveauFacteur(verifies.length===0?'principal':'secours');
+    return await enrolerNouveauFacteur(verifies.length===0?'principal':'secours', genMfa);
    }catch(e){
     // Toute exception inattendue (DOM, SDK) devient une erreur recuperable visible,
     // sans laisser CURRENT_AGENT/MFA dans un etat fige.
@@ -632,11 +634,13 @@ async function requireChiefMfa(){
 }
 
 // Cree exactement un facteur et affiche son QR. Secret conserve en memoire uniquement.
-async function enrolerNouveauFacteur(rang){
+async function enrolerNouveauFacteur(rang,genAttendu){
   const {data:enrollment,error:enrollError}=await supa.auth.mfa.enroll({
     factorType:'totp',
     friendlyName:libelleFacteurMfa(CURRENT_AGENT,rang||'principal')
   });
+  // Deconnexion survenue pendant l'enrolement : ne pas afficher un QR pour une session morte.
+  if(genAttendu!=null&&genAttendu!==AUTH_GEN) return false;
   if(enrollError||!enrollment?.id){
     // Conflit de nom : un autre parcours vient de creer le facteur -> relire et basculer en reprise.
     if(String(enrollError?.code||'')==='mfa_factor_name_conflict'){
@@ -773,6 +777,7 @@ function showMfaScreen(mode,options){
 async function verifyChiefMfa(event){
   event.preventDefault();
   if(!MFA_STATE||!MFA_STATE.factorId) return;   // aucun facteur cible (ex. ecran de selection) -> ignorer
+  const genV=AUTH_GEN;   // instantane : une deconnexion pendant la verification invalide ce parcours
   const submit=document.getElementById('mfa-submit');
   const errorEl=document.getElementById('mfa-error');
   const code=document.getElementById('mfa-code').value.trim();
@@ -782,6 +787,7 @@ async function verifyChiefMfa(event){
     factorId:MFA_STATE.factorId,
     code
   });
+  if(genV!==AUTH_GEN){ submit.disabled=false; return; }   // deconnecte pendant la verification -> ne pas demarrer l'app
   if(error){
     // Messages distincts ; le facteur est conserve, un nouvel essai reste possible.
     errorEl.textContent=messageErreurMfa(error);

@@ -59,6 +59,7 @@
         mfa: {
           getAuthenticatorAssuranceLevel: async () => {
             await lat();
+            if (S.latenceAal) await sleep(S.latenceAal);   // fenetre d'attente pour tester un logout concurrent
             if (S.aalErreur) return { data: null, error: S.aalErreur };
             return { data: { currentLevel: aal }, error: null };
           },
@@ -85,6 +86,7 @@
           },
           challengeAndVerify: async () => {
             C.challengeAndVerify++; await lat();
+            if (S.latenceVerify) await sleep(S.latenceVerify);   // fenetre d'attente pour tester un logout concurrent
             if (S.verifyErreur) return { error: S.verifyErreur };
             aal = 'aal2';
             return { data: {}, error: null };
