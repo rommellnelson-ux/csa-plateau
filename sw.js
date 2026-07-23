@@ -1,4 +1,4 @@
-const CACHE = 'csa-plateau-v16-app-js';
+const CACHE = 'csa-plateau-v17-mfa-recovery';
 const ASSETS = [
   './',
   './index.html',
