@@ -1,0 +1,15 @@
+{
+  "name": "csa-mfa-e2e",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Tests end-to-end MFA (client Supabase simule, aucun compte distant).",
+  "type": "module",
+  "scripts": {
+    "test": "playwright test --config=playwright.config.mjs",
+    "test:edge": "playwright test --config=playwright.edge.config.mjs",
+    "test:sw": "playwright test sw.spec.mjs --config=playwright.config.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.61.1"
+  }
+}

@@ -25,7 +25,7 @@
 <script>
 // Le corps des tests s'exécute DANS le contexte de l'iframe (eval) pour voir
 // les const (escHtml, VIEW, ...) qui ne sont pas exposées sur window.
-const TEST_SRC = `(function(){
+const TEST_SRC = `(async function(){
   const results=[];
   const ok=(name,cond)=>results.push({name,pass:!!cond});
   try{
@@ -64,6 +64,159 @@ const TEST_SRC = `(function(){
     ok('needsPriceValidation: prix positif -> ok', needsPriceValidation({px_cession:500})===false);
     ok('needsPriceValidation: A_VALIDER force malgre prix', needsPriceValidation({px_cession:500,price_status:'A_VALIDER'})===true);
     ok('needsPriceValidation: produit cree sans prix (hors chef) -> a valider', needsPriceValidation({})===true);
+
+    // ─── Régression MFA : contrat de retour de listFactors() ───
+    // Vérifié sur supabase-js 2.110.8 : data.totp ne contient QUE les facteurs vérifiés ;
+    // un facteur inachevé n'existe que dans data.all. Chercher un facteur non vérifié
+    // dans data.totp donne toujours l'ensemble vide (défaut corrigé).
+    const fxMfa={
+      all:[{id:'f1',status:'unverified',factor_type:'totp'},{id:'f2',status:'verified',factor_type:'totp'}],
+      totp:[{id:'f2',status:'verified',factor_type:'totp'}]
+    };
+    ok('contrat: facteur inacheve present dans data.all', fxMfa.all.some(f=>f.status!=='verified'));
+    ok('contrat: facteur inacheve ABSENT de data.totp', !fxMfa.totp.some(f=>f.status!=='verified'));
+    ok('ancienne methode (.totp) ne detectait rien', fxMfa.totp.filter(f=>f.status!=='verified').length===0);
+    ok('methode corrigee (.all) detecte 1 inacheve', fxMfa.all.filter(f=>f.status!=='verified').length===1);
+    ok('source unique des facteurs definie', typeof listerTousLesFacteursMfa==='function');
+    ok('bootstrap Auth unique defini', typeof bootstrapAuthenticatedSession==='function');
+    ok('verrous reinitialisables', typeof resetAuthLocks==='function');
+    ok('reprise et redemarrage exposes', typeof mfaReprendre==='function' && typeof mfaRecommencer==='function');
+    ok('machine d etats MFA complete (10 etats)', typeof MFA_ETATS==='object' && Object.keys(MFA_ETATS).length===10);
+    ok('libelle SEV-CI principal', libelleFacteurMfa({isChef:false,permissions:['sevci_data']},'principal')==='CSA Plateau - SEV-CI principal');
+    ok('libelle SEV-CI secours', libelleFacteurMfa({isChef:false,permissions:['sevci_data']},'secours')==='CSA Plateau - SEV-CI secours');
+    ok('libelle chef principal', libelleFacteurMfa({isChef:true,permissions:['chef']},'principal')==='CSA Plateau - Médecin-Chef principal');
+    ok('libelle chef secours', libelleFacteurMfa({isChef:true,permissions:['chef']},'secours')==='CSA Plateau - Médecin-Chef secours');
+    ok('libelles distincts principal/secours', libelleFacteurMfa({isChef:true},'principal')!==libelleFacteurMfa({isChef:true},'secours'));
+    ok('politique : maximum 2 facteurs', typeof MFA_MAX_FACTEURS==='number' && MFA_MAX_FACTEURS===2);
+    ok('selection de facteur exposee', typeof mfaChoisirFacteur==='function');
+    ok('message distinct: code incorrect', messageErreurMfa({code:'mfa_verification_failed'}).indexOf('incorrect')>-1);
+    ok('message distinct: code expire', messageErreurMfa({code:'mfa_challenge_expired'}).indexOf('xpir')>-1);
+    ok('message distinct: conflit de nom', messageErreurMfa({code:'mfa_factor_name_conflict'}).indexOf('cours')>-1);
+
+    // ─── Scénarios MFA pilotés par un client Supabase simulé (P1..P10) ───
+    const vraiSupa=supa;
+    const F=(id,st,nom)=>({id:id,factor_type:'totp',status:st,friendly_name:nom||('CSA Plateau - SEV-CI '+(st==='verified'?'principal':'inachevee'))});
+    function simuler(facteurs,opts){
+      opts=opts||{};
+      const appels={enroll:0,unenroll:0,dernierNom:null};
+      supa={auth:{mfa:{
+        getAuthenticatorAssuranceLevel:async()=>opts.aalErreur
+          ? {data:null,error:opts.aalErreur}
+          : {data:{currentLevel:opts.aal||'aal1'},error:null},
+        listFactors:async()=>({data:facteurs,error:null}),
+        enroll:async(a)=>{ appels.enroll++; appels.dernierNom=a.friendlyName;
+          return opts.enrollErreur?{data:null,error:opts.enrollErreur}
+            :{data:{id:'NOUVEAU',totp:{qr_code:'data:image/png;base64,AAAA',secret:'SECRET-SIMULE'}},error:null}; },
+        unenroll:async()=>{ appels.unenroll++; return {error:null}; },
+        challengeAndVerify:async()=>({error:null})
+      }}};
+      return appels;
+    }
+    CURRENT_AGENT={id:'T',nom:'T',role:'Test',module:'sevci',permissions:['sevci_data'],isChef:false};
+
+    // P1 — aucun facteur
+    let a=simuler({all:[],totp:[],phone:[]}); resetAuthLocks();
+    await requireChiefMfa();
+    ok('P1 etat = enrolement requis', MFA_STATE.etat===MFA_ETATS.ENROLEMENT_EN_COURS);
+    ok('P1 exactement un enroll', a.enroll===1);
+    ok('P1 aucun unenroll', a.unenroll===0);
+    ok('P1 libelle principal SEV-CI', a.dernierNom==='CSA Plateau - SEV-CI principal');
+    ok('P1 zone QR affichee', document.getElementById('mfa-qr-zone').style.display==='block');
+
+    // P2 — un facteur non verifie
+    a=simuler({all:[F('F1','unverified')],totp:[],phone:[]}); resetAuthLocks();
+    await requireChiefMfa();
+    ok('P2 etat = reprise possible', MFA_STATE.etat===MFA_ETATS.FACTEUR_NON_VERIFIE_REPRISE_POSSIBLE);
+    ok('P2 AUCUN enroll', a.enroll===0);
+    ok('P2 AUCUN unenroll', a.unenroll===0);
+    ok('P2 ecran de choix affiche', document.getElementById('mfa-choice').style.display==='block');
+
+    // P3 — reprise : challenge du facteur existant, aucun enrolement
+    mfaReprendre();
+    ok('P3 reprise -> challenge du meme facteur', MFA_STATE.factorId==='F1');
+    ok('P3 reprise sans enroll', a.enroll===0 && a.unenroll===0);
+
+    // P5 — un facteur verifie
+    const fv=F('FV','verified');
+    a=simuler({all:[fv],totp:[fv],phone:[]}); resetAuthLocks();
+    await requireChiefMfa();
+    ok('P5 challenge du facteur verifie', MFA_STATE.etat===MFA_ETATS.FACTEUR_VERIFIE_A_CHALLENGER && MFA_STATE.factorId==='FV');
+    ok('P5 aucun enroll ni unenroll', a.enroll===0 && a.unenroll===0);
+
+    // P6 — deux facteurs verifies
+    const fa=F('FA','verified','CSA Plateau - SEV-CI principal'), fb=F('FB','verified','CSA Plateau - SEV-CI secours');
+    a=simuler({all:[fa,fb],totp:[fa,fb],phone:[]}); resetAuthLocks();
+    await requireChiefMfa();
+    ok('P6 ecran de selection', MFA_STATE.etat===MFA_ETATS.CHOIX_FACTEUR_VERIFIE);
+    ok('P6 deux methodes proposees', MFA_STATE.facteurs.length===2);
+    ok('P6 AUCUNE selection silencieuse', !MFA_STATE.factorId);
+    ok('P6 pas d avertissement de gestion', MFA_STATE.gestionRequise===false);
+    ok('P6 liste DOM rendue', document.getElementById('mfa-select-list').children.length===2);
+    mfaChoisirFacteur('FB');
+    ok('P6 challenge du facteur choisi', MFA_STATE.factorId==='FB' && MFA_STATE.etat===MFA_ETATS.FACTEUR_VERIFIE_A_CHALLENGER);
+
+    // P7 — plus de deux facteurs verifies
+    const fc=F('FC','verified','CSA Plateau - SEV-CI tiers');
+    a=simuler({all:[fa,fb,fc],totp:[fa,fb,fc],phone:[]}); resetAuthLocks();
+    await requireChiefMfa();
+    ok('P7 avertissement de gestion', MFA_STATE.gestionRequise===true);
+    ok('P7 choix toujours possible', MFA_STATE.facteurs.length===3);
+    ok('P7 AUCUNE suppression', a.unenroll===0 && a.enroll===0);
+
+    // P8 — plusieurs facteurs non verifies
+    a=simuler({all:[F('U1','unverified'),F('U2','unverified')],totp:[],phone:[]}); resetAuthLocks();
+    await requireChiefMfa();
+    ok('P8 redemarrage requis', MFA_STATE.etat===MFA_ETATS.FACTEUR_NON_VERIFIE_REDEMARRAGE_REQUIS);
+    ok('P8 AUCUNE suppression automatique', a.unenroll===0);
+    ok('P8 AUCUN enroll automatique', a.enroll===0);
+
+    // P9 — double initialisation simultanee (single-flight)
+    a=simuler({all:[],totp:[],phone:[]}); resetAuthLocks();
+    await Promise.all([requireChiefMfa(),requireChiefMfa(),requireChiefMfa()]);
+    ok('P9 un seul enroll malgre 3 appels simultanes', a.enroll===1);
+
+    // AAL2 deja acquis
+    a=simuler({all:[],totp:[],phone:[]},{aal:'aal2'}); resetAuthLocks();
+    const rAal2=await requireChiefMfa();
+    ok('AAL2 -> acces accorde', rAal2===true && MFA_STATE.etat===MFA_ETATS.AAL2_OK);
+    ok('AAL2 -> aucun enroll', a.enroll===0);
+
+    // Erreur reseau transitoire a l'entree initiale (ecran MFA non encore ouvert -> message sur l'ecran de connexion)
+    document.getElementById('mfa-screen').style.display='none';   // simuler une entree fraiche
+    document.getElementById('auth-error').textContent='';
+    a=simuler({all:[],totp:[],phone:[]},{aalErreur:{message:'network timeout'}}); resetAuthLocks();
+    const rNet=await requireChiefMfa();
+    ok('reseau KO -> etat recuperable', MFA_STATE.etat===MFA_ETATS.ERREUR_RECUPERABLE);
+    ok('reseau KO -> pas d acces', rNet===false);
+    ok('reseau KO -> message reseau (ecran connexion)', document.getElementById('auth-error').textContent.indexOf('Réseau')>-1);
+    ok('reseau KO -> aucun facteur touche', a.enroll===0 && a.unenroll===0);
+    ok('reseau KO -> nouvel essai possible', document.getElementById('auth-submit').disabled===false);
+
+    // Erreur MFA APRES ouverture de l'ecran MFA -> message sur l'ecran MFA, pas dans #auth-error cache (R2-A)
+    document.getElementById('mfa-screen').style.display='flex';
+    document.getElementById('auth-error').textContent='';
+    document.getElementById('mfa-error').textContent='';
+    a=simuler({all:[],totp:[],phone:[]},{aalErreur:{message:'network timeout'}}); resetAuthLocks();
+    document.getElementById('mfa-screen').style.display='flex';   // resetAuthLocks ne touche pas l'affichage
+    await requireChiefMfa();
+    ok('erreur sur ecran MFA -> #mfa-error rempli', document.getElementById('mfa-error').textContent.length>0);
+    ok('erreur sur ecran MFA -> #auth-error vide', document.getElementById('auth-error').textContent==='');
+
+    // Conflit de nom -> bascule en reprise (et non en impasse)
+    a=simuler({all:[F('FX','unverified')],totp:[],phone:[]},{enrollErreur:{code:'mfa_factor_name_conflict'}});
+    resetAuthLocks();
+    await enrolerNouveauFacteur('principal');
+    ok('conflit -> bascule en reprise', MFA_STATE.etat===MFA_ETATS.FACTEUR_NON_VERIFIE_REPRISE_POSSIBLE);
+
+    // P10 — deconnexion : verrous et DOM nettoyes
+    document.getElementById('mfa-secret').textContent='Clé manuelle : SECRET-SIMULE';
+    resetAuthLocks();
+    ok('P10 verrous reinitialises', MFA_STATE===null);
+    ok('P10 secret retire du DOM', document.getElementById('mfa-secret').textContent==='');
+    ok('P10 QR retire du DOM', !document.getElementById('mfa-qr').getAttribute('src'));
+    ok('P10 aucun secret en stockage local', Object.keys(localStorage).every(k=>String(localStorage.getItem(k)||'').indexOf('SECRET-SIMULE')===-1));
+
+    supa=vraiSupa; CURRENT_AGENT=null;
 
     // ─── Synchro v2 : idempotence (client_event_id) ───
     ok('newClientEventId: format UUID v4', /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(newClientEventId()));
@@ -142,7 +295,9 @@ function tryRun(){
   let ready=false;
   try{ ready = w && w.eval('typeof numFR==="function" && typeof VIEW!=="undefined"'); }catch(e){ ready=false; }
   if(ready){
-    try{ render(w.eval(TEST_SRC)); }
+    try{ Promise.resolve(w.eval(TEST_SRC))
+           .then(render)
+           .catch(e=>render([{name:"Echec asynchrone des tests: "+e.message,pass:false}])); }
     catch(e){ render([{name:"Impossible d'exécuter les tests: "+e.message,pass:false}]); }
     return;
   }

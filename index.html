@@ -5,7 +5,9 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>CSA Plateau — Gestion Médicale v2</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://wsnehnempnexzxzuklbv.supabase.co wss://wsnehnempnexzxzuklbv.supabase.co https://mzfrcoqjbizhgppwmjon.supabase.co wss://mzfrcoqjbizhgppwmjon.supabase.co; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'">
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<!-- Version epinglee : celle utilisee pour valider le correctif MFA (Option A).
+     Toute montee de version doit faire l'objet d'un chantier distinct avec tests Auth/MFA/sessions/PWA. -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.8/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
 :root{
@@ -232,14 +234,43 @@ body.compact #content[data-view="cpt-caisse"] .g2{gap:8px;}
   <div class="auth-box">
     <div class="auth-title">Sécurité Médecin-Chef</div>
     <div class="auth-sub" id="mfa-instructions">Validation du second facteur obligatoire</div>
+
+    <!-- Configuration inachevée : reprise ou redémarrage, jamais de suppression automatique -->
+    <div id="mfa-choice" style="display:none;margin:12px 0">
+      <div style="font-size:12px;background:#fff8e1;border:1px solid #ffe082;border-radius:6px;padding:10px;color:#5d4037">
+        Une configuration de sécurité inachevée a été détectée sur votre compte.
+      </div>
+      <button class="btn btn-primary" type="button" id="mfa-resume" onclick="mfaReprendre()" style="width:100%;margin-top:10px">J'ai déjà scanné le code</button>
+      <button class="btn btn-out" type="button" id="mfa-restart" onclick="mfaRecommencer()" style="width:100%;margin-top:8px;color:var(--marine);border-color:var(--border)">Recommencer la configuration</button>
+      <div class="pin-error" id="mfa-choice-error" role="alert"></div>
+    </div>
+
+    <!-- Plusieurs facteurs vérifiés : choix explicite, jamais de sélection silencieuse -->
+    <div id="mfa-select" style="display:none;margin:12px 0">
+      <div id="mfa-select-warn" style="display:none;font-size:12px;background:#ffebee;border:1px solid #ffcdd2;border-radius:6px;padding:10px;color:#b71c1c;margin-bottom:10px">
+        Plus de deux méthodes de sécurité sont enregistrées. Une intervention de gestion des facteurs est nécessaire : signalez-le à l'administrateur. Vous pouvez néanmoins continuer ci-dessous.
+      </div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Choisissez la méthode à utiliser :</div>
+      <div id="mfa-select-list"></div>
+    </div>
+
     <div id="mfa-qr-zone" style="display:none;text-align:center;margin:12px 0">
+      <ol style="text-align:left;font-size:11px;color:var(--muted);margin:0 0 10px 18px;padding:0">
+        <li>Installez <strong>Google Authenticator</strong> ou <strong>Microsoft Authenticator</strong>.</li>
+        <li>Ouvrez l'application et appuyez sur « + ».</li>
+        <li>Choisissez « Scanner un code QR » et visez l'image ci-dessous.</li>
+        <li>Saisissez <strong>immédiatement</strong> les 6 chiffres affichés.</li>
+        <li><strong>Ne fermez pas et n'actualisez pas cette page</strong> avant d'avoir validé.</li>
+        <li>Ne partagez jamais ce code, cette clé, ni les 6 chiffres.</li>
+      </ol>
       <img id="mfa-qr" alt="QR code MFA" style="width:190px;height:190px;border:8px solid white">
       <div style="font-size:10px;color:var(--muted);margin-top:8px">Scannez avec Google Authenticator, Microsoft Authenticator ou Authy.</div>
       <div id="mfa-secret" style="font-family:monospace;font-size:11px;word-break:break-all;margin-top:6px"></div>
     </div>
-    <form onsubmit="verifyChiefMfa(event)">
+    <form id="mfa-form" onsubmit="verifyChiefMfa(event)">
       <div class="fr"><label for="mfa-code">Code à 6 chiffres</label><input id="mfa-code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required></div>
       <button class="btn btn-primary" id="mfa-submit" type="submit" style="width:100%">Valider</button>
+      <button class="btn btn-out" type="button" id="mfa-restart-inline" onclick="mfaRecommencer()" style="display:none;width:100%;margin-top:8px;color:var(--marine);border-color:var(--border)">Je n'ai plus l'entrée : recommencer la configuration</button>
       <button class="btn btn-out" type="button" onclick="logout()" style="width:100%;margin-top:8px;color:var(--marine);border-color:var(--border)">Annuler et se déconnecter</button>
       <div class="pin-error" id="mfa-error" role="alert"></div>
     </form>

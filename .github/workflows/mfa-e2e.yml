@@ -1,0 +1,50 @@
+name: MFA E2E (navigateur, local uniquement)
+
+# Rejoue les parcours MFA (P1-P10 + erreurs reseau) et la migration du service
+# worker dans un vrai navigateur, avec un client Supabase SIMULE.
+# 100% local : aucun secret, aucun projet Supabase, aucune URL distante, aucun deploiement.
+
+on:
+  pull_request:
+  push:
+    branches: [ fix/mfa-enrollment-race-recovery ]
+
+permissions:
+  contents: read
+
+jobs:
+  mfa-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Installer les dependances epinglees + Chromium
+        working-directory: tests/e2e
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Servir l'application (127.0.0.1:8769)
+        run: |
+          nohup python3 -m http.server 8769 --bind 127.0.0.1 >/tmp/srv-app.log 2>&1 &
+          # copie isolee pour les tests service worker (ils reecrivent la constante CACHE)
+          mkdir -p tests/e2e/site
+          cp index.html app.js sw.js manifest.json tests/e2e/site/
+          nohup python3 -m http.server 8770 --bind 127.0.0.1 --directory tests/e2e/site >/tmp/srv-sw.log 2>&1 &
+          for i in $(seq 1 20); do curl -sf http://127.0.0.1:8769/index.html >/dev/null && break; sleep 1; done
+
+      - name: Tests MFA (Chromium)
+        working-directory: tests/e2e
+        env:
+          BASE_URL: http://127.0.0.1:8769
+        run: npx playwright test mfa.spec.mjs --config=playwright.config.mjs
+
+      - name: Tests service worker (migration v16 -> v17)
+        working-directory: tests/e2e
+        env:
+          SW_BASE_URL: http://127.0.0.1:8770
+        run: npx playwright test sw.spec.mjs --config=playwright.config.mjs
