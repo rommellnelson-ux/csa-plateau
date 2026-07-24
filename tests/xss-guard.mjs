@@ -25,16 +25,25 @@ const FORBIDDEN = [
   { re: /\$\{v\.items\.map\(i=>i\.nom\+' ×'\+i\.qte\)\.join\(', '\)\}/, desc: 'items vente non échappés' },
   { re: /\$\{alertes\.map\(m=>m\.nom\+' \('\+m\.stock\+'\)'\)\.join\(' \| '\)\}/, desc: 'alerte stock critique non échappée' },
   { re: /Agent\s*:\s*\$\{CURRENT_AGENT\.nom\}/, desc: "nom d'agent non échappé (reçu)" },
+  // Puits d'ATTRIBUT (rupture possible via "> ) : le nom produit doit passer par escHtml.
+  { re: /data-nom="\$\{[a-z]\.nom(\|\|'')?\}/, desc: 'nom (data-nom) non échappé — rupture attribut possible' },
+  { re: /id="pha-nom-\$\{m\.id\}" value="\$\{m\.nom/, desc: 'nom produit (value input) non échappé' },
+  // DOUBLE ENCODAGE : hist est ré-échappé au rendu (escHtml(hist)) ; il ne doit donc
+  // PAS échapper ses champs à la construction, sinon "A&B" devient "A&amp;B" visible.
+  { re: /hist=consultations\.map\(c=>[^\n]*escHtml\(c\.(?:type|agent_nom)/, desc: 'double encodage du résumé clinique (hist échappé deux fois)' },
 ];
 
 // 2) exportCSV DOIT passer par csvCell (neutralisation de formule).
 const csvOk = /keys\.map\(csvCell\)\.join\(','\)/.test(src) && /keys\.map\(k=>csvCell\(row\[k\]\)\)/.test(src);
+// Invariant positif : tout data-nom="${...}" doit envelopper la valeur dans escHtml.
+const dataNomOk = !/data-nom="\$\{(?!escHtml\()/.test(src);
 
 let failures = 0;
 for (const f of FORBIDDEN) {
   if (f.re.test(src)) { console.error('❌ RÉGRESSION: ' + f.desc + '  [' + f.re + ']'); failures++; }
 }
 if (!csvOk) { console.error('❌ RÉGRESSION: exportCSV ne passe plus par csvCell (neutralisation formule CSV)'); failures++; }
+if (!dataNomOk) { console.error('❌ RÉGRESSION: un data-nom="${...}" n\'est pas enveloppé dans escHtml (rupture attribut)'); failures++; }
 
 // 3) HEURISTIQUE INFORMATIVE — interpolations de champs contrôlables sans helper.
 //    Ne fait PAS échouer : liste à revoir humainement (voir §10 : un grep n'est pas une preuve).
