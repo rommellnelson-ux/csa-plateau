@@ -275,6 +275,64 @@ const TEST_SRC = `(async function(){
       ok('deriveStock: solde = dernier stock_apres (med A -> 7)', deriveStock('A',mvs)===7);
       ok('deriveStock: med B -> 3', deriveStock('B',mvs)===3);
       ok('deriveStock: med sans mouvement -> 0', deriveStock('Z',mvs)===0); }
+
+    // ═══════════ PR A — Rendu sûr XSS + neutralisation formule CSV ═══════════
+    // Corpus de charges. AUCUNE requête réseau réelle : marqueur inerte uniquement.
+    const XSS_CORPUS=[
+      '<img src=x onerror=window.__XSS_TEST__=1>',
+      '"><svg onload=window.__XSS_TEST__=1>',
+      '<details open ontoggle=window.__XSS_TEST__=1>',
+      'javascript:alert(1)',
+      '"><img src=x onerror=window.__XSS_TEST__=1>'
+    ];
+    XSS_CORPUS.forEach((p,i)=>{ const e=escHtml(p);
+      ok('escHtml['+i+'] neutralise < et >', e.indexOf('<')===-1 && e.indexOf('>')===-1);
+      ok('escHtml['+i+'] neutralise le guillemet double', e.indexOf(String.fromCharCode(34))===-1);
+    });
+    ok('escHtml conserve les accents', escHtml('Éàçüö')==='Éàçüö');
+    ok('escHtml conserve les emojis', escHtml('💉🏥')==='💉🏥');
+    ok('escHtml conserve le RTL', escHtml('مرحبا')==='مرحبا');
+    ok('escHtml apostrophe -> entite', escHtml("l'agent").indexOf('&#39;')>-1);
+    ok('escHtml esperluette -> entite', escHtml('A&B').indexOf('&amp;')>-1);
+    ok('escHtml null/undefined -> chaine vide', escHtml(null)==='' && escHtml(undefined)==='');
+    ok('escHtml PAS de double encodage (A&B -> A&amp;B)', escHtml('A&B')==='A&amp;B');
+    { const lng='x'.repeat(20000); ok('escHtml chaine tres longue preservee', escHtml(lng).length===20000); }
+
+    // csvCell : neutralise les préfixes de formule ; conserve les nombres exploitables.
+    ok('csvCell =HYPERLINK -> prefixe apostrophe', csvCell('=HYPERLINK(x,y)').charAt(1)==="'");
+    ok('csvCell +1+1 -> neutralise', csvCell('+1+1').charAt(1)==="'");
+    ok('csvCell -1+1 -> neutralise', csvCell('-1+1').charAt(1)==="'");
+    ok('csvCell @SUM -> neutralise', csvCell('@SUM(1,1)').charAt(1)==="'");
+    ok('csvCell TAB en tete -> neutralise', csvCell(String.fromCharCode(9)+'cmd').charAt(1)==="'");
+    ok('csvCell nombre negatif reel -> NON altere', csvCell(-150)==='"-150"');
+    ok('csvCell texte numerique negatif -> NON altere', csvCell('-150')==='"-150"');
+    ok('csvCell decimal -> NON altere', csvCell('12.5')==='"12.5"');
+    ok('csvCell texte normal -> entoure', csvCell('Paracetamol')==='"Paracetamol"');
+    ok('csvCell guillemet interne -> double', csvCell('a'+String.fromCharCode(34)+'b')==='"a""b"');
+    ok('csvCell null -> cellule vide', csvCell(null)==='""');
+    ok('csvCell undefined -> cellule vide', csvCell(undefined)==='""');
+    ok('csvCell objet -> JSON entoure', csvCell({a:1}).indexOf('{')>-1);
+
+    // Puits DOM : données malveillantes dans TOUTES les tables contrôlables. Après
+    // rendu de toutes les vues, aucune balise exécutable ne doit survivre, le marqueur
+    // ne doit jamais se déclencher, et la charge doit apparaître ÉCHAPPÉE (preuve).
+    delete window.__XSS_TEST__;
+    const XP='<img src=x onerror=window.__XSS_TEST__=1>';
+    localStorage.setItem('csa2_clotures', JSON.stringify([{id:'c1',date:today(),enc_attendu:0,physique:0,ecart:0,cnam_a_facturer:0,sig_caissier:XP,sig_resp:XP,observations:XP}]));
+    localStorage.setItem('csa2_labo_actes', JSON.stringify([{id:'l1',patient_nom:'P',statut:'CMU',actes:[{nom:'Bio',cnam:0,tm:0}],total:0,resultat:XP,preleve_par:XP,date:today(),created_at:new Date().toISOString()}]));
+    localStorage.setItem('csa2_soins', JSON.stringify([{id:'s1',patient_nom:'P',statut:'CMU',actes:[{nom:XP}],total:0,cnam:0,date:today(),created_at:new Date().toISOString()}]));
+    localStorage.setItem('csa2_pharma_ventes', JSON.stringify([{id:'v1',patient_nom:'P',statut:'NA',items:[{nom:XP,qte:1}],total:0,date:today(),created_at:new Date().toISOString()}]));
+    localStorage.setItem('csa2_pharma_stock', JSON.stringify([{id:'m1',nom:XP,dci:'D',stock:0,seuil:5,catalogue_status:'ACTIF'}]));
+    localStorage.setItem('csa2_transactions', JSON.stringify([{id:'t1',designation:XP,service:'ACCUEIL',montant:0,cnam:0,encaisse:0,date:today(),created_at:new Date().toISOString()}]));
+    CURRENT_AGENT={id:'T',nom:'T',role:'Chef',module:'chef',permissions:['chef'],isChef:true};
+    let sinkHtml='';
+    Object.keys(VIEW).forEach(k=>{ const d=document.createElement('div'); try{VIEW[k](d); sinkHtml+=d.innerHTML;}catch(e){} });
+    ok('aucune balise <img onerror executable dans les vues', sinkHtml.indexOf('<img src=x onerror')===-1);
+    ok('aucune balise <svg onload executable dans les vues', sinkHtml.indexOf('<svg onload')===-1);
+    ok('marqueur XSS jamais declenche au rendu', typeof window.__XSS_TEST__==='undefined');
+    ok('la charge apparait ECHAPPEE (preuve de rendu du puits)', sinkHtml.indexOf('&lt;img src=x onerror')>-1);
+    ['csa2_clotures','csa2_labo_actes','csa2_soins','csa2_pharma_ventes','csa2_pharma_stock','csa2_transactions'].forEach(k=>localStorage.removeItem(k));
+    CURRENT_AGENT=null;
   }catch(e){ ok('exception fatale: '+e.message, false); }
   return results;
 })()`;
