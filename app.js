@@ -1142,7 +1142,7 @@ function renderClinicalSummary(patientId){
   const flags=getAlertFlags(lastConst);
   const consultations=DB.get('consultations').filter(c=>c.patient_id===patientId).slice(0,5);
   const prestataires=[...new Set(consultations.map(c=>c.agent_nom).filter(Boolean))];
-  const hist=consultations.map(c=>`${fmtD(c.created_at)} - ${c.type} (${escHtml(c.agent_nom||'?')})`).join(' | ');
+  const hist=consultations.map(c=>`${fmtD(c.created_at)} - ${escHtml(c.type||'')} (${escHtml(c.agent_nom||'?')})`).join(' | ');
   return `<div class="fs" style="margin-top:8px">
     <div class="fs-title" style="color:var(--bleu)">Dossier clinique rapide</div>
     <div style="font-size:11px;margin-bottom:6px"><strong>Antécédents :</strong> ${escHtml(p.antecedents||'Non renseignés')}</div>
@@ -1332,14 +1332,14 @@ function savePatient(){
   const totalAccueil = ventes + tarifConsult;
   document.getElementById('acc-recu-zone').innerHTML=`
   <div>
-    <div class="al al-ok"><strong>✅ Patient enregistré — Dossier N°${p.dossier_no}</strong> | Agent : ${CURRENT_AGENT.nom}</div>
+    <div class="al al-ok"><strong>✅ Patient enregistré — Dossier N°${escHtml(p.dossier_no)}</strong> | Agent : ${escHtml(CURRENT_AGENT.nom)}</div>
     <div class="card" id="recu-print-${p.id}">
       <div class="card-title">Reçu d'accueil — À imprimer</div>
       <div class="recu">
         <div class="recu-title">REÇU D'ACCUEIL</div>
         <div style="text-align:center;font-size:11px;font-weight:700;color:var(--marine)">CSA — GARDE RÉPUBLICAINE DU PLATEAU</div>
-        <div style="text-align:center;font-size:10px;color:#888;margin-bottom:4px">${now.toLocaleString('fr-FR')} | Bât. ${p.batiment}</div>
-        <div style="text-align:center;font-size:10px;margin-bottom:6px">Dossier N° <strong>${p.dossier_no}</strong> | Agent : ${CURRENT_AGENT.nom}</div>
+        <div style="text-align:center;font-size:10px;color:#888;margin-bottom:4px">${now.toLocaleString('fr-FR')} | Bât. ${escHtml(p.batiment)}</div>
+        <div style="text-align:center;font-size:10px;margin-bottom:6px">Dossier N° <strong>${escHtml(p.dossier_no)}</strong> | Agent : ${escHtml(CURRENT_AGENT.nom)}</div>
         <hr style="margin:6px 0">
         <div class="recu-line"><span>Patient</span><span><strong>${escHtml(nom)}</strong></span></div>
         <div class="recu-line"><span>Statut</span><span>${badge(statutSimple)}</span></div>
@@ -1491,7 +1491,7 @@ function saveConstantes(){
       <div class="card-title">Fiche constantes — À imprimer</div>
       <div class="recu">
         <div class="recu-title">CONSTANTES VITALES</div>
-        <div style="text-align:center;font-size:10px">${new Date().toLocaleString('fr-FR')} | Agent : ${CURRENT_AGENT.nom}</div>
+        <div style="text-align:center;font-size:10px">${new Date().toLocaleString('fr-FR')} | Agent : ${escHtml(CURRENT_AGENT.nom)}</div>
         <div style="text-align:center;font-weight:700;margin:6px 0">${escHtml(nom)}</div>
         <hr style="margin:4px 0">
         ${poids?`<div class="recu-line"><span>Poids</span><span>${poids} kg</span></div>`:''}
@@ -1703,7 +1703,7 @@ function saveConsultation(){
       <div class="recu">
         <div class="recu-title">TICKET DE CONSULTATION</div>
         <div style="text-align:center;font-size:11px;font-weight:700;color:var(--marine)">CSA — GARDE RÉPUBLICAINE DU PLATEAU</div>
-        <div style="text-align:center;font-size:10px;color:#888;margin-bottom:6px">${now.toLocaleString('fr-FR')} | ${CURRENT_AGENT.nom}</div>
+        <div style="text-align:center;font-size:10px;color:#888;margin-bottom:6px">${now.toLocaleString('fr-FR')} | ${escHtml(CURRENT_AGENT.nom)}</div>
         <hr style="margin:4px 0">
         <div class="recu-line"><span>N° Dossier</span><span style="font-weight:700">${dossierAffiche}</span></div>
         <div class="recu-line"><span>Patient</span><span><strong>${escHtml(nom)}</strong></span></div>
@@ -1942,7 +1942,7 @@ function saveSoins(){
       <div class="card-title">Facture soins infirmiers — Imprimable</div>
       <div class="recu">
         <div class="recu-title">SOINS INFIRMIERS — CSA PLATEAU</div>
-        <div style="text-align:center;font-size:10px">${now.toLocaleString('fr-FR')} | ${CURRENT_AGENT.nom}</div>
+        <div style="text-align:center;font-size:10px">${now.toLocaleString('fr-FR')} | ${escHtml(CURRENT_AGENT.nom)}</div>
         <hr style="margin:4px 0">
         <div class="recu-line"><span>Patient</span><span><strong>${escHtml(nom)}</strong></span></div>
         <div class="recu-line"><span>Statut</span><span>${statut}</span></div>
@@ -2137,7 +2137,7 @@ function renderBilletHospitalisation(o){
     <div class="card-title">Billet de sortie d'hospitalisation</div>
     <div class="recu">
       <div class="recu-title">BILLET DE SORTIE</div>
-      <div style="text-align:center;font-size:10px">${new Date().toLocaleString('fr-FR')} | ${CURRENT_AGENT.nom}</div>
+      <div style="text-align:center;font-size:10px">${new Date().toLocaleString('fr-FR')} | ${escHtml(CURRENT_AGENT.nom)}</div>
       <div class="recu-line"><span>Patient</span><span><strong>${escHtml(o.patient_nom)}</strong></span></div>
       <div class="recu-line"><span>Statut</span><span>${escHtml(o.statut)}</span></div>
       <div class="recu-line"><span>Admission</span><span>${fmtD(o.date_admission)}</span></div>
@@ -2161,7 +2161,7 @@ VIEW['soins-liste'] = (el) => {
       ${soins.map(s=>`<tr>
         <td>${fmtT(s.created_at)}</td><td style="font-weight:700">${escHtml(s.patient_nom)}</td>
         <td>${badge(s.statut)}</td>
-        <td style="font-size:10px">${s.actes.map(a=>a.nom).join(', ')}</td>
+        <td style="font-size:10px">${escHtml(s.actes.map(a=>a.nom).join(', '))}</td>
         <td>${fmt(s.total)} F</td>
         <td style="color:var(--cmu)">${fmt(s.cnam)} F</td>
         <td style="color:var(--or)">${fmt(s.tm)} F</td>
@@ -2603,8 +2603,8 @@ VIEW['labo-resultats'] = (el) => {
         <td>${fmt(a.total)} F</td>
         <td style="color:var(--cmu)">${fmt(a.cnam)} F</td>
         <td style="color:var(--or)">${fmt(a.tm)} F</td>
-        <td style="font-size:10px;color:var(--rouge)">${a.resultat||'—'}</td>
-        <td style="font-size:10px;color:var(--muted)">${a.preleve_par||a.agent_nom}</td>
+        <td style="font-size:10px;color:var(--rouge)">${escHtml(a.resultat||'—')}</td>
+        <td style="font-size:10px;color:var(--muted)">${escHtml(a.preleve_par||a.agent_nom)}</td>
       </tr>`).join('')||'<tr><td colspan="9" style="text-align:center;color:#aaa;padding:16px">Aucun acte</td></tr>'}
     </table></div>
   </div>`;
@@ -3415,7 +3415,7 @@ VIEW['pha-tableau'] = (el) => {
     <div class="kpi" style="border-left-color:${alertes.length?'var(--rouge)':'var(--vert)'}"><div class="kpi-ico">⚠️</div><div class="kpi-lbl">Alertes stock</div><div class="kpi-val" style="color:${alertes.length?'var(--rouge)':'var(--vert)'}">${alertes.length}</div></div>
     <div class="kpi" style="border-left-color:var(--bleu)"><div class="kpi-ico">🧾</div><div class="kpi-lbl">Délivrances totales</div><div class="kpi-val" style="color:var(--bleu)">${ventes.length}</div></div>
   </div>
-  ${alertes.length?`<div class="al al-err"><strong>⚠️ Stock critique :</strong> ${alertes.map(m=>m.nom+' ('+m.stock+')').join(' | ')}</div>`:''}
+  ${alertes.length?`<div class="al al-err"><strong>⚠️ Stock critique :</strong> ${escHtml(alertes.map(m=>m.nom+' ('+m.stock+')').join(' | '))}</div>`:''}
   <div class="g2">
     <div class="card"><div class="card-title">Ventes par catégorie</div><canvas id="ch-pha-cat"></canvas></div>
     <div class="card"><div class="card-title">Ventes par statut patient</div><canvas id="ch-pha-statut"></canvas></div>
@@ -3427,7 +3427,7 @@ VIEW['pha-tableau'] = (el) => {
       ${ventesToday.map(v=>`<tr>
         <td>${fmtT(v.created_at)}</td><td style="font-weight:700">${escHtml(v.patient_nom)}</td>
         <td>${badge(v.statut)}</td>
-        <td style="font-size:10px">${v.items.map(i=>i.nom+' ×'+i.qte).join(', ')}</td>
+        <td style="font-size:10px">${escHtml(v.items.map(i=>i.nom+' ×'+i.qte).join(', '))}</td>
         <td>${fmt(v.total)} F</td>
         <td style="color:var(--cmu)">${fmt(v.cnam)} F</td>
         <td style="color:var(--or)">${fmt(v.tm)} F</td>
@@ -3565,7 +3565,7 @@ function validerCloture(enc,cnam){
   document.getElementById('clt-confirm').innerHTML=`
     <div class="al ${ecart===0?'al-ok':ecart>0?'al-warn':'al-err'}">
       <strong>${ecart===0?'✅ Clôture conforme':'⚠️ Clôture avec écart de '+fmt(Math.abs(ecart))+' FCFA'}</strong>
-      Enregistrée le ${new Date().toLocaleString('fr-FR')} | Caissière : ${s1}
+      Enregistrée le ${new Date().toLocaleString('fr-FR')} | Caissière : ${escHtml(s1)}
     </div>`;
 }
 
@@ -3992,7 +3992,7 @@ VIEW['chef-alertes'] = (el) => {
   <div class="card">
     <div class="card-title">Alertes & Surveillance — Temps réel</div>
     <button class="btn btn-primary btn-sm no-print" onclick="showView('chef-alertes')" style="margin-bottom:10px">Actualiser</button>
-    ${alerts.map(a=>`<div class="al al-${a.t}"><strong>${a.titre}</strong>${a.msg}</div>`).join('')}
+    ${alerts.map(a=>`<div class="al al-${a.t}"><strong>${escHtml(a.titre)}</strong>${escHtml(a.msg)}</div>`).join('')}
   </div>
   <div class="card">
     <div class="card-title">Indicateurs pharmacie — Seuils d'alerte</div>
@@ -4015,7 +4015,7 @@ VIEW['chef-alertes'] = (el) => {
         <td>${c.date}</td><td>${fmt(c.enc_attendu)} F</td><td>${fmt(c.physique)} F</td>
         <td><span class="badge ${c.ecart===0?'b-ok':c.ecart>0?'b-warn':'b-err'}">${c.ecart===0?'✓':fmt(Math.abs(c.ecart))+' F'}</span></td>
         <td style="color:var(--cmu)">${fmt(c.cnam_a_facturer||0)} F</td>
-        <td style="font-size:10px">${c.sig_caissier}</td>
+        <td style="font-size:10px">${escHtml(c.sig_caissier)}</td>
       </tr>`).join('')||'<tr><td colspan="6" style="text-align:center;color:#aaa">Aucune clôture</td></tr>'}
     </table></div>
   </div>`;
@@ -4054,8 +4054,8 @@ function chefSearch(){
     <div class="tw"><table>
       <tr><th>Date</th><th>Nom</th><th>Genre</th><th>Statut</th><th>Bâtiment</th><th>Agent</th><th>Consultations</th></tr>
       ${patients.map(p=>{const cs=DB.get('consultations').filter(c=>c.patient_id===p.id);return `<tr>
-        <td>${fmtD(p.created_at)}</td><td style="font-weight:700">${escHtml(p.nom)}</td><td>${p.genre||'—'}</td>
-        <td>${badge(p.statut_simple||p.statut)}</td><td style="font-size:11px">${p.batiment||'—'}</td>
+        <td>${fmtD(p.created_at)}</td><td style="font-weight:700">${escHtml(p.nom)}</td><td>${escHtml(p.genre||'—')}</td>
+        <td>${badge(p.statut_simple||p.statut)}</td><td style="font-size:11px">${escHtml(p.batiment||'—')}</td>
         <td style="font-size:10px;color:var(--muted)">${escHtml(p.agent_nom)}</td><td style="text-align:center">${cs.length}</td>
       </tr>`;}).join('')||'<tr><td colspan="7" style="text-align:center;color:#aaa">Aucun résultat</td></tr>'}
     </table></div>`;
@@ -4087,7 +4087,7 @@ function openChefDossier(pid){
   const ph=DB.get('pharma_ventes').filter(x=>x.patient_nom===p.nom);
   const lab=DB.get('labo_actes').filter(x=>(x.patient_id&&x.patient_id===pid)||x.patient_nom===p.nom);
   const timeline=[];
-  cs.forEach(c=>timeline.push({id:c.id,dt:c.created_at,type:'CONSULT',txt:`${c.type} / ${escHtml(c.agent_nom||'?')}`}));
+  cs.forEach(c=>timeline.push({id:c.id,dt:c.created_at,type:'CONSULT',txt:`${c.type} / ${c.agent_nom||'?'}`}));
   cst.forEach(c=>timeline.push({id:c.id,dt:c.created_at,type:'CONST',txt:`T°${c.temperature||'—'} TA ${c.ta||'—'} SpO2 ${c.spo2||'—'} IMC ${c.imc||'—'}`}));
   soins.forEach(s=>timeline.push({id:s.id,dt:s.created_at,type:'SOINS',txt:`${(s.actes||[]).map(a=>a.nom).join(', ')||'Actes'} (${fmt(s.total||0)} F)`}));
   lab.forEach(l=>timeline.push({id:l.id,dt:l.created_at,type:'LABO',txt:`${(l.actes||[]).map(a=>a.code).join(', ')||'Actes labo'} (${fmt(l.total||0)} F)`}));
