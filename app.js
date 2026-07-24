@@ -1083,6 +1083,18 @@ function clearLocalClinicalData(){
 function escSQ(v){
   return String(v||'').replace(/[\\'"\n\r&<>]/g,(c)=>({'\\':'\\\\','\'':'\\\'','"':'&quot;','\n':'\\n','\r':'\\r','&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 }
+// Neutralise l'injection de formule dans les exports CSV (Excel / LibreOffice) :
+// une valeur NON strictement numerique dont le 1er caractere est = + - @ TAB CR LF
+// est prefixee d'une apostrophe -> le tableur l'affiche comme texte inerte, jamais
+// comme formule. Les nombres reels (ex. -150 ; 12.5) ne sont pas alteres et restent
+// exploitables. Puis encodage CSV standard : guillemets doubles + cellule entouree.
+function csvCell(v){
+  if(v===null||v===undefined) return '""';
+  const s=(typeof v==='object')?JSON.stringify(v):String(v);
+  const numeric=/^-?\d+(?:\.\d+)?$/.test(s.trim());
+  const guarded=(!numeric && /^[=+\-@\t\r\n]/.test(s)) ? "'"+s : s;
+  return '"'+guarded.replace(/"/g,'""')+'"';
+}
 function getBillingStatut(patient){
   const base=(patient?.statut_simple||patient?.statut||'NA');
   const droits=String(patient?.droits_verifies??'1');
@@ -4439,7 +4451,7 @@ function exportCSV(table,filename){
   const data=DB.get(table);
   if(!data.length){alert('Aucune donnée');return;}
   const keys=Object.keys(data[0]);
-  const csv=[keys.join(','),...data.map(row=>keys.map(k=>{const v=row[k];if(typeof v==='object')return '"'+JSON.stringify(v).replace(/"/g,'""')+'"';return '"'+(v||'').toString().replace(/"/g,'""')+'"';}).join(','))].join('\n');
+  const csv=[keys.map(csvCell).join(','),...data.map(row=>keys.map(k=>csvCell(row[k])).join(','))].join('\n');
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'}));a.download=filename;a.click();
 }
 function clearData(){
