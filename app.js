@@ -1172,7 +1172,9 @@ function renderClinicalSummary(patientId){
   const flags=getAlertFlags(lastConst);
   const consultations=DB.get('consultations').filter(c=>c.patient_id===patientId).slice(0,5);
   const prestataires=[...new Set(consultations.map(c=>c.agent_nom).filter(Boolean))];
-  const hist=consultations.map(c=>`${fmtD(c.created_at)} - ${escHtml(c.type||'')} (${escHtml(c.agent_nom||'?')})`).join(' | ');
+  // Valeurs BRUTES ici : hist est echappe UNE seule fois au rendu (escHtml(hist)
+  // plus bas). Echapper aussi ici produirait un double encodage (ex. "A&B" -> "A&amp;B").
+  const hist=consultations.map(c=>`${fmtD(c.created_at)} - ${c.type||''} (${c.agent_nom||'?'})`).join(' | ');
   return `<div class="fs" style="margin-top:8px">
     <div class="fs-title" style="color:var(--bleu)">Dossier clinique rapide</div>
     <div style="font-size:11px;margin-bottom:6px"><strong>Antécédents :</strong> ${escHtml(p.antecedents||'Non renseignés')}</div>
