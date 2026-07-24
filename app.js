@@ -1083,16 +1083,34 @@ function clearLocalClinicalData(){
 function escSQ(v){
   return String(v||'').replace(/[\\'"\n\r&<>]/g,(c)=>({'\\':'\\\\','\'':'\\\'','"':'&quot;','\n':'\\n','\r':'\\r','&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 }
-// Neutralise l'injection de formule dans les exports CSV (Excel / LibreOffice) :
-// une valeur NON strictement numerique dont le 1er caractere est = + - @ TAB CR LF
-// est prefixee d'une apostrophe -> le tableur l'affiche comme texte inerte, jamais
-// comme formule. Les nombres reels (ex. -150 ; 12.5) ne sont pas alteres et restent
-// exploitables. Puis encodage CSV standard : guillemets doubles + cellule entouree.
+// Neutralise l'injection de formule dans les exports CSV (Excel / LibreOffice).
+// Politique :
+//  - Nombre reel (signe optionnel + chiffres + decimale . ou , eventuelle,
+//    espaces autour autorises) -> JAMAIS prefixe : reste exploitable dans le
+//    tableur (montants, -150, 12.5, 1,5).
+//  - Sinon on cherche le 1er caractere SIGNIFICATIF en ignorant tout prefixe
+//    invisible (espaces ASCII/Unicode via \s, NBSP, BOM, zero-width). S'il vaut
+//    = + - @ -> la valeur ORIGINALE est prefixee d'une apostrophe (texte inerte,
+//    contenu conserve). Puis encodage CSV : guillemets doubles + cellule entouree.
 function csvCell(v){
   if(v===null||v===undefined) return '""';
   const s=(typeof v==='object')?JSON.stringify(v):String(v);
-  const numeric=/^-?\d+(?:\.\d+)?$/.test(s.trim());
-  const guarded=(!numeric && /^[=+\-@\t\r\n]/.test(s)) ? "'"+s : s;
+  // Neutralisation formule : on cherche le 1er caractere SIGNIFICATIF en ignorant
+  // tout prefixe (ET suffixe) invisible, par CODE de caractere -- aucune dependance
+  // a des caracteres invisibles dans le source :
+  //   9 TAB, 10 LF, 11 VT, 12 FF, 13 CR, 32 SPACE, 160 NBSP, 65279 BOM,
+  //   8203 ZWSP, 8204 ZWNJ, 8205 ZWJ, 8288 WORD-JOINER.
+  const INVIS=[9,10,11,12,13,32,160,65279,8203,8204,8205,8288];
+  const inv=(c)=>INVIS.indexOf(c)>-1;
+  let a=0,b=s.length;
+  while(a<b && inv(s.charCodeAt(a))) a++;
+  while(b>a && inv(s.charCodeAt(b-1))) b--;
+  const core=s.slice(a,b);
+  // Nombre reel (signe + chiffres + decimale . ou ,) -> JAMAIS prefixe (exploitable).
+  const numeric=/^-?\d+(?:[.,]\d+)?$/.test(core);
+  const sig=core.charAt(0);
+  const danger=(sig==='='||sig==='+'||sig==='-'||sig==='@');
+  const guarded=(!numeric && danger) ? "'"+s : s;
   return '"'+guarded.replace(/"/g,'""')+'"';
 }
 function getBillingStatut(patient){
