@@ -279,6 +279,15 @@ const TEST_SRC = `(async function(){
       ok('deriveStock: solde = dernier stock_apres (med A -> 7)', deriveStock('A',mvs)===7);
       ok('deriveStock: med B -> 3', deriveStock('B',mvs)===3);
       ok('deriveStock: med sans mouvement -> 0', deriveStock('Z',mvs)===0); }
+
+    // ─── Option B3 : stockOnlyDiff (auto-résolution faux conflit stock) ───
+    { const base={id:'M1',nom:'Amox',code_produit:'AMX',px_cession:500,seuil:10,stock:20};
+      const stockDiff={...base,stock:15,updated_at:'2026-08-05T10:00:00Z',entity_version:3};
+      const priceDiff={...base,px_cession:600};
+      ok('stockOnlyDiff: ne differe que par stock+bookkeeping -> true', stockOnlyDiff(base,stockDiff)===true);
+      ok('stockOnlyDiff: differe par un prix -> false (vrai conflit)', stockOnlyDiff(base,priceDiff)===false);
+      ok('stockOnlyDiff: payloads identiques -> true', stockOnlyDiff(base,{...base})===true);
+      ok('stockOnlyDiff: payload manquant -> false', stockOnlyDiff(base,null)===false); }
   }catch(e){ ok('exception fatale: '+e.message, false); }
   return results;
 })()`;

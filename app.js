@@ -44,6 +44,13 @@ const SYNC_V2 = true;
 // Validé sur staging puis promu en prod (juin 2026). Repli per-row automatique
 // si csa_commit est absente -> jamais de blocage même si la RPC manque.
 const SYNC_GROUPS = true;
+// Option B (stock dérivé) : le stock est calculé depuis le registre append-only
+// pharma_mouvements au lieu du compteur mutable pharma_stock.stock. En mode
+// dérivé, les ventes concurrentes hors ligne ne produisent plus de FAUX conflit
+// d'écrasement sur le stock (les mouvements s'additionnent, ne s'écrasent pas) ;
+// pharma_stock reste mutable pour ses MÉTADONNÉES (nom, prix, seuil, statut), qui
+// gardent l'anti-écrasement. STAGING d'abord (B3) ; passera à `true` en B4 (prod).
+const STOCK_DERIVED = (CSA_ENV==='staging');
 let CSA_GROUP = null; // id du groupe en cours (null hors d'un groupe)
 // Isolation : si on change d'environnement, on PURGE le cache local (csa2_*)
 // pour qu'aucune donnée/op d'un env ne fuite vers l'autre (ex. staging -> prod).
@@ -331,10 +338,10 @@ const DB = {
     const rows=DB.get('pharma_stock')
       .filter(m=>m.active!==false&&!isDemoMedicineId(m.id))
       .map(m=>({...m,px_na:(m.px_na??m.px_cession)}));
-    // Option B2 (STAGING uniquement) : stock dérivé du registre append-only
-    // pharma_mouvements. Prod inchangée : le compteur pharma_stock.stock reste la
-    // source de vérité. Permet de valider la dérivation avant toute bascule prod.
-    if(CSA_ENV==='staging'){
+    // Option B2 (mode dérivé) : stock calculé depuis le registre append-only
+    // pharma_mouvements. Prod inchangée tant que STOCK_DERIVED est faux : le
+    // compteur pharma_stock.stock reste la source de vérité.
+    if(STOCK_DERIVED){
       const mvs=DB.get('pharma_mouvements');
       return rows.map(m=>({...m,stock:deriveStock(m.id,mvs)}));
     }
@@ -1037,6 +1044,20 @@ function deriveStock(medId, mouvements){
     if(!last || String(m.created_at||'')>=String(last.created_at||'')) last=m;
   }
   return last?(+last.stock_apres||0):0;
+}
+// Option B (stock dérivé) : deux payloads pharma_stock ne diffèrent-ils QUE par le
+// champ `stock` (+ bookkeeping de synchro) ? Sert à auto-résoudre un faux conflit
+// d'écrasement : en mode dérivé, le stock vient des mouvements, donc un écart
+// portant uniquement sur `stock` n'est pas un vrai conflit. Un écart sur une
+// métadonnée (prix, nom, seuil, statut…) reste, lui, un conflit à parquer.
+function stockOnlyDiff(a, b){
+  if(!a || !b) return false;
+  const strip=(o)=>{ const r={...o};
+    delete r.stock; delete r.updated_at; delete r.synced;
+    delete r.entity_version; delete r.client_event_id;
+    return JSON.stringify(Object.keys(r).sort().reduce((acc,k)=>{acc[k]=r[k];return acc;},{}));
+  };
+  return strip(a)===strip(b);
 }
 // Identifiant unique d'événement client (UUID v4) pour la synchro idempotente.
 function newClientEventId(){
@@ -4524,6 +4545,13 @@ async function pushCloudRow(row, baseVersion){
   if(SYNC_V2 && MUTABLE_TABLES.includes(row.table_name) && baseVersion!=null){
     const cur=await supa.from(CLOUD_TABLE).select('entity_version,payload').eq('event_key',row.event_key).maybeSingle();
     if(!cur.error && cur.data && cur.data.entity_version!=null && Number(cur.data.entity_version)!==Number(baseVersion)){
+      // Option B (mode dérivé) : un conflit sur pharma_stock qui ne porte QUE sur
+      // le champ `stock` est un FAUX conflit (le stock vrai vient des mouvements,
+      // synchronisés à part). On le résout silencieusement au lieu de le parquer.
+      // Un écart sur une métadonnée (prix, nom, statut…) reste un vrai conflit.
+      if(STOCK_DERIVED && row.table_name==='pharma_stock' && stockOnlyDiff(row.payload, cur.data.payload)){
+        return {ok:true,fallback:'stock_derived_autoresolve'};
+      }
       return {ok:false,conflict:true,serverVersion:cur.data.entity_version,serverPayload:cur.data.payload};
     }
   }

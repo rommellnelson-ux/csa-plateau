@@ -49,31 +49,32 @@ signée). **Aucune modification de comportement.**
   renvoie le stock **dérivé** (dernier `stock_apres` du registre) ; en prod il
   renvoie le **compteur** inchangé. Gate vérifié dans les deux sens.
   **Reste à valider en session RÉELLE staging** (login pack pharmacie, inventaire
-  → vente → réappro, y c. hors-ligne) avant B3 — pour confirmer que le modèle
+  → vente → réappro, y c. hors-ligne à 2 postes) pour confirmer que le modèle
   dérivé tient sous des opérations réelles (pas seulement des données seedées).
-
-> ⚠️ **B3 n'est PAS un simple retrait de `MUTABLE_TABLES`.** Analyse (app.js:84,
-> 1054, 4524, 4532 + staging_bootstrap:174) : `pharma_stock` est aujourd'hui
-> **upserté** (1 ligne/med, MAJ en place) et **rejeté par `csa_commit`** côté
-> serveur (liste en dur). Le rendre immuable exige un changement de modèle
-> COORDONNÉ front↔serveur : (a) pharma_stock devient append-only OU cesse de
-> porter le stock (stock 100 % dérivé) ; (b) `csa_commit` + policies serveur
-> cessent de le traiter comme mutable. `MUTABLE_TABLES`/les fonctions serveur
-> **ne sont pas gated par env** → B3 ne peut pas être limité au staging aussi
-> proprement que B2 → c'est de fait le cœur de la bascule (proche de B4).
-> À concevoir explicitement (plan dédié), pas à bricoler.
-- **B3 — `pharma_stock` immuable.** Une fois le dérivé prouvé en staging : retirer
-  `pharma_stock` de `MUTABLE_TABLES` (`app.js:84`) → supprime l'anti-écrasement du
-  stock, `pharma_stock` devient catalogue append-only. Adapter `csa_commit` (le
-  stock peut alors entrer dans le groupe atomique).
-- **B4 — Bascule prod.** Décision de **release** (ASK avant). Passer le flag en
-  prod, surveiller, garder le compteur en lecture de secours le temps d'une
-  fenêtre d'observation.
+- **B3 — Neutraliser le faux conflit sur le stock. ✅ FAIT (staging).**
+  **Recadrage** : `pharma_stock` ne peut PAS devenir immuable (le retirer de
+  `MUTABLE_TABLES` le rendrait insert-only → MAJ perdues ; il porte aussi des
+  MÉTADONNÉES — prix/nom/seuil/statut — protégées par l'anti-écrasement). B3 ne
+  rend donc rien immuable : flag unique `STOCK_DERIVED` (= `CSA_ENV==='staging'`),
+  `getStock` l'utilise, et **`pushCloudRow` auto-résout** un conflit `pharma_stock`
+  qui ne diffère QUE sur `stock` (helper `stockOnlyDiff`) → plus de fausse bannière
+  lors de ventes concurrentes hors ligne ; un écart sur une métadonnée reste un
+  vrai conflit parqué. Aucun changement serveur (le modèle serveur est déjà
+  compatible : `pharma_mouvements` append-only). Tests : 4 assertions `stockOnlyDiff`
+  (109/109 TESTS_PASS). Compteur `pharma_stock.stock` toujours écrit = cache
+  rollback-safe (ignoré en lecture en mode dérivé).
+- **B4 — Bascule prod.** Décision de **release** (ASK avant). `STOCK_DERIVED = true`
+  (au lieu de `CSA_ENV==='staging'`). Prérequis : validation opérationnelle réelle
+  en staging + `stock_reconciliation_report.sql` propre. Garder le compteur en cache
+  (rollback = reflipper à `false`).
+- **B5 — Lots dérivés (hors scope B3/B4).** `pharma_lots` reste mutable et
+  décrémenté (`consumeLots`/`setLots`) → source de conflit résiduelle. Le dériver
+  des mouvements (`lot_id`+`quantite`) est une phase ultérieure distincte.
 
 ## Garde-fous
 
 - Chaque étape : réversible par `git revert` + le compteur `pharma_stock.stock`
   reste écrit jusqu'à B4 (double source pendant la transition).
 - Re-lancer `stock_reconciliation_report.sql` avant/après chaque étape.
-- Tests : étendre `tests.html` (parité `deriveStock` vs compteur) en B2 ;
-  pgTAP en B3 (csa_commit acceptant pharma_stock).
+- Tests : `tests.html` couvre `deriveStock` (B2) et `stockOnlyDiff` (B3). B4/B5
+  n'exigent pas de changement serveur → pas de pgTAP additionnel.
