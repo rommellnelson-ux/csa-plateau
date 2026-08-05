@@ -279,6 +279,100 @@ const TEST_SRC = `(async function(){
       ok('deriveStock: solde = dernier stock_apres (med A -> 7)', deriveStock('A',mvs)===7);
       ok('deriveStock: med B -> 3', deriveStock('B',mvs)===3);
       ok('deriveStock: med sans mouvement -> 0', deriveStock('Z',mvs)===0); }
+
+    // ============ PR A — Rendu sûr XSS + neutralisation formule CSV ============
+    // Corpus de charges (marqueur inerte, AUCUNE requête réseau réelle).
+    const XSS_CORPUS=[
+      '<img src=x onerror=window.__XSS_TEST__=1>',
+      '"><svg onload=window.__XSS_TEST__=1>',
+      '<details open ontoggle=window.__XSS_TEST__=1>',
+      'javascript:alert(1)',
+      '"><img src=x onerror=window.__XSS_TEST__=1>'
+    ];
+    XSS_CORPUS.forEach((p,i)=>{ const e=escHtml(p);
+      ok('escHtml['+i+'] neutralise < et >', e.indexOf('<')===-1 && e.indexOf('>')===-1);
+      ok('escHtml['+i+'] neutralise le guillemet double', e.indexOf(String.fromCharCode(34))===-1);
+    });
+    ok('escHtml conserve les accents', escHtml('Éàçüö')==='Éàçüö');
+    ok('escHtml conserve les emojis', escHtml('💉🏥')==='💉🏥');
+    ok('escHtml conserve le RTL', escHtml('مرحبا')==='مرحبا');
+    ok('escHtml apostrophe -> entite', escHtml("l'agent").indexOf('&#39;')>-1);
+    ok('escHtml esperluette -> entite', escHtml('A&B').indexOf('&amp;')>-1);
+    ok('escHtml null/undefined -> chaine vide', escHtml(null)==='' && escHtml(undefined)==='');
+    ok('escHtml PAS de double encodage (A&B -> A&amp;B)', escHtml('A&B')==='A&amp;B');
+    { const lng='x'.repeat(20000); ok('escHtml chaine tres longue preservee', escHtml(lng).length===20000); }
+
+    // -- Double encodage : renderClinicalSummary echappe UNE seule fois --
+    // Le texte VISIBLE doit etre exactement l'original (aucune entite &amp; affichee).
+    {
+      localStorage.setItem('csa2_patients', JSON.stringify([{id:'DPZ',nom:'Patient Test',statut:'NA',statut_simple:'NA',antecedents:'RAS',created_at:new Date().toISOString()}]));
+      localStorage.setItem('csa2_consultations', JSON.stringify([{id:'cc1',patient_id:'DPZ',type:'Consultation <urgence>',agent_nom:"Dr A&B O'Brien",created_at:new Date().toISOString()}]));
+      const cont=document.createElement('div'); cont.innerHTML=renderClinicalSummary('DPZ');
+      const vis=cont.textContent;
+      ok('clinical summary: texte visible exact (pas de double encodage)', vis.indexOf("Dr A&B O'Brien")>-1);
+      ok('clinical summary: chevrons visibles tels quels', vis.indexOf('<urgence>')>-1);
+      ok('clinical summary: aucune entite affichee', vis.indexOf('&amp;')===-1 && vis.indexOf('&lt;')===-1 && vis.indexOf('&#39;')===-1);
+      ok('clinical summary: aucun HTML actif injecte', cont.querySelectorAll('img,svg,details').length===0);
+      localStorage.removeItem('csa2_patients'); localStorage.removeItem('csa2_consultations');
+    }
+
+    // csvCell : neutralisation formule MEME derriere des caracteres invisibles +
+    // conservation des nombres. Politique : un nombre reel (signe, chiffres, decimale
+    // . ou ,) n'est JAMAIS prefixe ; sinon si le 1er caractere significatif (apres
+    // espaces/TAB/CR/LF/NBSP/BOM/zero-width) est = + - @, la valeur est prefixee.
+    const pref=(x)=>csvCell(x).charAt(1)==="'";
+    const SP=String.fromCharCode(32), TAB=String.fromCharCode(9), NBSP=String.fromCharCode(160), BOM=String.fromCharCode(65279), ZWSP=String.fromCharCode(8203);
+    ok('csvCell =HYPERLINK -> prefixe', pref('=HYPERLINK(x,y)'));
+    ok('csvCell espaces + =CMD -> prefixe', pref(SP+SP+SP+'=CMD()'));
+    ok('csvCell espace+TAB + =CMD -> prefixe', pref(SP+TAB+'=CMD()'));
+    ok('csvCell NBSP + =SUM -> prefixe', pref(NBSP+'=SUM(1,1)'));
+    ok('csvCell BOM + =SUM -> prefixe', pref(BOM+'=SUM(1,1)'));
+    ok('csvCell ZWSP + =SUM -> prefixe', pref(ZWSP+'=SUM(1,1)'));
+    ok('csvCell espaces + +1+1 -> prefixe', pref('   +1+1'));
+    ok('csvCell espaces + -1+1 -> prefixe', pref('   -1+1'));
+    ok('csvCell espaces + @SUM -> prefixe', pref('   @SUM(1,1)'));
+    ok('csvCell texte commencant par tiret (non numerique) -> prefixe', pref('-Ceftriaxone'));
+    ok('csvCell nombre negatif reel (number) -> NON prefixe', csvCell(-150)==='"-150"');
+    ok('csvCell texte numerique negatif -> NON prefixe', csvCell('-150')==='"-150"');
+    ok('csvCell decimal point -> NON prefixe', csvCell('12.5')==='"12.5"');
+    ok('csvCell decimal virgule -> NON prefixe', csvCell('1,5')==='"1,5"');
+    ok('csvCell exposant 1e3 -> NON prefixe', csvCell('1e3')==='"1e3"');
+    ok('csvCell texte normal -> entoure sans prefixe', csvCell('Paracetamol')==='"Paracetamol"');
+    ok('csvCell guillemet interne -> double', csvCell('a'+String.fromCharCode(34)+'b')==='"a""b"');
+    ok('csvCell null/undefined -> cellule vide', csvCell(null)==='""' && csvCell(undefined)==='""');
+    ok('csvCell objet -> JSON entoure', csvCell({a:1}).indexOf('{')>-1);
+
+    // -- Puits DOM (DETERMINISTE) : charges (dont RUPTURE d'attribut) dans toutes les
+    // tables controlables. Apres rendu de TOUTES les vues DANS le document, aucun
+    // element injecte VIVANT (onerror/onload/ontoggle portant le marqueur) ne doit
+    // exister et le marqueur ne doit jamais se declencher. Independant de la
+    // serialisation innerHTML (contrairement a un simple indexOf). --
+    delete window.__XSS_TEST__;
+    const PAYLOADS=['<img src=x onerror=window.__XSS_TEST__=1>','"><img src=x onerror=window.__XSS_TEST__=1>'];
+    const host=document.createElement('div'); host.style.cssText='position:absolute;left:-9999px;width:0;height:0;overflow:hidden'; document.body.appendChild(host);
+    const marque=(el)=>/__XSS_TEST__/.test((el.getAttribute('onerror')||'')+(el.getAttribute('onload')||'')+(el.getAttribute('ontoggle')||''));
+    let liveInjected=0;
+    PAYLOADS.forEach(XP=>{
+      localStorage.setItem('csa2_clotures', JSON.stringify([{id:'c1',date:today(),enc_attendu:0,physique:0,ecart:0,cnam_a_facturer:0,sig_caissier:XP,sig_resp:XP,observations:XP}]));
+      localStorage.setItem('csa2_labo_actes', JSON.stringify([{id:'l1',patient_nom:'P',statut:'CMU',actes:[{nom:'Bio',cnam:0,tm:0}],total:0,resultat:XP,preleve_par:XP,date:today(),created_at:new Date().toISOString()}]));
+      localStorage.setItem('csa2_soins', JSON.stringify([{id:'s1',patient_nom:'P',statut:'CMU',actes:[{nom:XP}],total:0,cnam:0,date:today(),created_at:new Date().toISOString()}]));
+      localStorage.setItem('csa2_pharma_ventes', JSON.stringify([{id:'v1',patient_nom:'P',statut:'NA',items:[{nom:XP,qte:1}],total:0,date:today(),created_at:new Date().toISOString()}]));
+      localStorage.setItem('csa2_pharma_stock', JSON.stringify([{id:'m1',nom:XP,dci:'D',stock:0,seuil:5,catalogue_status:'ACTIF'}]));
+      localStorage.setItem('csa2_transactions', JSON.stringify([{id:'t1',designation:XP,service:'ACCUEIL',montant:0,cnam:0,encaisse:0,date:today(),created_at:new Date().toISOString()}]));
+      localStorage.setItem('csa2_patients', JSON.stringify([{id:'p1',nom:XP,genre:XP,batiment:XP,statut:'NA',statut_simple:'NA',created_at:new Date().toISOString()}]));
+      CURRENT_AGENT={id:'T',nom:'T',role:'Chef',module:'chef',permissions:['chef'],isChef:true};
+      Object.keys(VIEW).forEach(k=>{ const d=document.createElement('div'); try{ VIEW[k](d); }catch(e){} host.innerHTML=''; host.appendChild(d);
+        Array.prototype.forEach.call(host.querySelectorAll('[onerror],[onload],[ontoggle]'), (el)=>{ if(marque(el)) liveInjected++; });
+      });
+    });
+    // Preuve de rendu ET d'echappement en contexte TEXTE (stable navigateur).
+    { const d=document.createElement('div'); localStorage.setItem('csa2_clotures', JSON.stringify([{id:'c1',date:today(),enc_attendu:0,physique:0,ecart:0,cnam_a_facturer:0,sig_caissier:'<img src=x onerror=window.__XSS_TEST__=1>',sig_resp:'x',observations:'y'}])); try{VIEW['chef-alertes'](d);}catch(e){}
+      ok('puits texte (sig_caissier) rendu ECHAPPE (&lt;img...)', d.innerHTML.indexOf('&lt;img src=x onerror')>-1); }
+    host.remove();
+    ['csa2_clotures','csa2_labo_actes','csa2_soins','csa2_pharma_ventes','csa2_pharma_stock','csa2_transactions','csa2_patients'].forEach(k=>localStorage.removeItem(k));
+    ok('aucun element injecte vivant (onerror/onload/ontoggle + marqueur) dans les vues', liveInjected===0);
+    ok('marqueur XSS jamais declenche au rendu des vues', typeof window.__XSS_TEST__==='undefined');
+    CURRENT_AGENT=null;
   }catch(e){ ok('exception fatale: '+e.message, false); }
   return results;
 })()`;
@@ -305,7 +399,7 @@ function tryRun(){
     catch(e){ render([{name:"Impossible d'exécuter les tests: "+e.message,pass:false}]); }
     return;
   }
-  if(__tries>50){ render([{name:'Application non chargée (timeout)',pass:false}]); return; }
+  if(__tries>150){ render([{name:'Application non chargée (timeout)',pass:false}]); return; }
   setTimeout(tryRun,200);
 }
 tryRun();

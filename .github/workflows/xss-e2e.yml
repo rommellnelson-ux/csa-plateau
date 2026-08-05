@@ -1,0 +1,50 @@
+name: XSS E2E (navigateur, local uniquement)
+
+# Rejoue le rendu sûr XSS (toutes les vues + vrai parcours savePatient) et la
+# neutralisation des formules CSV dans un vrai navigateur, avec un client Supabase
+# SIMULE. 100% local : aucun secret, aucun projet Supabase, aucune URL distante,
+# aucun deploiement. Egalement : controles syntaxiques + garde-fou anti-regression.
+
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  xss-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Controles syntaxiques
+        run: |
+          node --check app.js
+          node --check tests/xss-guard.mjs
+          node --check tests/e2e/xss.spec.mjs
+
+      - name: Garde-fou anti-regression XSS / CSV
+        run: node tests/xss-guard.mjs
+
+      - name: Dependances epinglees + Chromium
+        working-directory: tests/e2e
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Servir l'application (127.0.0.1:8769)
+        run: |
+          nohup python3 -m http.server 8769 --bind 127.0.0.1 >/tmp/srv-xss.log 2>&1 &
+          for i in $(seq 1 20); do curl -sf http://127.0.0.1:8769/index.html >/dev/null && break; sleep 1; done
+
+      - name: Tests XSS + CSV (Chromium, client Supabase simule)
+        working-directory: tests/e2e
+        env:
+          BASE_URL: http://127.0.0.1:8769
+        run: npx playwright test xss.spec.mjs --config=playwright.config.mjs
