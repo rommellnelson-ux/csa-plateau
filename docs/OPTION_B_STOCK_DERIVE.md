@@ -45,9 +45,23 @@ signée). **Aucune modification de comportement.**
   `CSA_ENV==='staging'`. Prod **strictement inchangée** (compteur + anti-écrasement
   conservés — un seul point modifié, toutes les lectures passent par getStock).
   Parité couverte par `tests.html` (3 assertions `deriveStock`).
-  **À valider en staging** (`?env=staging`, pack de test pharmacie) : inventorier
-  un produit → vendre → réappro → vérifier que le stock affiché suit le registre,
-  y compris hors-ligne. Tant que ça n'est pas validé : ne PAS passer à B3.
+  **✅ Validé au niveau intégration** (preview) : en `?env=staging`, `DB.getStock()`
+  renvoie le stock **dérivé** (dernier `stock_apres` du registre) ; en prod il
+  renvoie le **compteur** inchangé. Gate vérifié dans les deux sens.
+  **Reste à valider en session RÉELLE staging** (login pack pharmacie, inventaire
+  → vente → réappro, y c. hors-ligne) avant B3 — pour confirmer que le modèle
+  dérivé tient sous des opérations réelles (pas seulement des données seedées).
+
+> ⚠️ **B3 n'est PAS un simple retrait de `MUTABLE_TABLES`.** Analyse (app.js:84,
+> 1054, 4524, 4532 + staging_bootstrap:174) : `pharma_stock` est aujourd'hui
+> **upserté** (1 ligne/med, MAJ en place) et **rejeté par `csa_commit`** côté
+> serveur (liste en dur). Le rendre immuable exige un changement de modèle
+> COORDONNÉ front↔serveur : (a) pharma_stock devient append-only OU cesse de
+> porter le stock (stock 100 % dérivé) ; (b) `csa_commit` + policies serveur
+> cessent de le traiter comme mutable. `MUTABLE_TABLES`/les fonctions serveur
+> **ne sont pas gated par env** → B3 ne peut pas être limité au staging aussi
+> proprement que B2 → c'est de fait le cœur de la bascule (proche de B4).
+> À concevoir explicitement (plan dédié), pas à bricoler.
 - **B3 — `pharma_stock` immuable.** Une fois le dérivé prouvé en staging : retirer
   `pharma_stock` de `MUTABLE_TABLES` (`app.js:84`) → supprime l'anti-écrasement du
   stock, `pharma_stock` devient catalogue append-only. Adapter `csa_commit` (le

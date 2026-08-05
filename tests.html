@@ -259,12 +259,16 @@ const TEST_SRC = `(async function(){
     }
 
     // ─── Stock jamais negatif (front) : FEFO + survente bloquee ───
-    { const med={id:'Mx',nom:'X',stock:10};
-      const lots=[{id:'L2',med_id:'Mx',quantite:5,date_peremption:'2027-01-01',created_at:'b'},
-                  {id:'L1',med_id:'Mx',quantite:5,date_peremption:'2026-08-01',created_at:'a'}];
+    // Dates de peremption RELATIVES a l'annee courante (sinon le test devient
+    // brittle : une date absolue finit par etre passee et fausse le FEFO).
+    { const yr=new Date().getFullYear();
+      const med={id:'Mx',nom:'X',stock:10};
+      const lots=[{id:'L2',med_id:'Mx',quantite:5,date_peremption:(yr+3)+'-01-01',created_at:'b'},
+                  {id:'L1',med_id:'Mx',quantite:5,date_peremption:(yr+2)+'-01-01',created_at:'a'}];
       const alloc=consumeLots(med,lots,3);
       ok('FEFO: consomme le lot perimant le plus tot en premier', alloc[0].lot_id==='L1'); }
-    { let threw=false; try{ consumeLots({id:'My',nom:'Y',stock:0},[{id:'L',med_id:'My',quantite:2,date_peremption:'2027-01-01'}],10); }catch(e){ threw=true; }
+    { const yr=new Date().getFullYear(); let threw=false;
+      try{ consumeLots({id:'My',nom:'Y',stock:0},[{id:'L',med_id:'My',quantite:2,date_peremption:(yr+2)+'-01-01'}],10); }catch(e){ threw=true; }
       ok('Survente bloquee: consumeLots jette si lots insuffisants', threw===true); }
 
     // ─── Option B (stock dérivé) : deriveStock = stock_apres du dernier mouvement ───
