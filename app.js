@@ -3886,12 +3886,28 @@ function decidePharmaInventory(id,approve){
     return;
   }
   const stock=DB.getStock();
-  const stale=(inv.lignes||[]).find(line=>{
-    if(line.is_new)return false;
-    const med=stock.find(m=>m.id===line.med_id);
-    return med&&(+med.stock||0)!==(+line.theorique||0);
-  });
-  if(stale){alert(`Le stock de ${stale.medicament} a changé depuis l’inventaire. Rejetez cette demande et faites saisir un nouvel inventaire.`);return;}
+  if(!STOCK_DERIVED){
+    // Mode compteur : toute variation de stock depuis la saisie invalide
+    // l’inventaire (le stock théorique doit être resté intact).
+    const stale=(inv.lignes||[]).find(line=>{
+      if(line.is_new)return false;
+      const med=stock.find(m=>m.id===line.med_id);
+      return med&&(+med.stock||0)!==(+line.theorique||0);
+    });
+    if(stale){alert(`Le stock de ${stale.medicament} a changé depuis l’inventaire. Rejetez cette demande et faites saisir un nouvel inventaire.`);return;}
+  }else{
+    // Mode dérivé (Option B) : l’écart est un delta qui se compose avec les
+    // ventes intercalées (courant + écart = physique − ventes). On applique donc
+    // l’écart même si le stock a bougé depuis la saisie, SAUF si le résultat
+    // serait négatif (des ventes ont consommé plus que le manquant constaté) →
+    // impossible, on bloque cette ligne.
+    const negatif=(inv.lignes||[]).find(line=>{
+      if(line.is_new)return false;
+      const med=stock.find(m=>m.id===line.med_id);
+      return med&&((+med.stock||0)+(+line.ecart||0))<0;
+    });
+    if(negatif){alert(`L’ajustement de ${negatif.medicament} rendrait le stock négatif (des ventes ont eu lieu depuis l’inventaire). Rejetez cette demande et faites saisir un nouvel inventaire.`);return;}
+  }
   const lots=DB.getLots();
   const impossible=(inv.lignes||[]).find(line=>{
     if(line.is_new||(+line.ecart||0)>=0) return false;

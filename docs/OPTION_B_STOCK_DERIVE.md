@@ -63,6 +63,14 @@ signée). **Aucune modification de comportement.**
   compatible : `pharma_mouvements` append-only). Tests : 4 assertions `stockOnlyDiff`
   (109/109 TESTS_PASS). Compteur `pharma_stock.stock` toujours écrit = cache
   rollback-safe (ignoré en lecture en mode dérivé).
+  **Raffinement — validation d'inventaire par le chef** (`decidePharmaInventory`) :
+  en mode compteur, toute vente entre la saisie et l'approbation invalide
+  l'inventaire (blocage « stock changé »). En mode dérivé, l'écart est un delta
+  qui se compose avec les ventes intercalées (`courant+écart = physique−ventes`) →
+  le blocage est **relâché** (l'ajustement s'applique quand même), avec un **clamp
+  anti-négatif** : on bloque seulement si `courant+écart < 0` (des ventes ont
+  consommé plus que le manquant constaté). Gated `STOCK_DERIVED` ; mode compteur
+  strictement inchangé.
 - **B4 — Bascule prod.** Décision de **release** (ASK avant). `STOCK_DERIVED = true`
   (au lieu de `CSA_ENV==='staging'`). Prérequis : validation opérationnelle réelle
   en staging + `stock_reconciliation_report.sql` propre. Garder le compteur en cache
