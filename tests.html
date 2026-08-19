@@ -288,6 +288,15 @@ const TEST_SRC = `(async function(){
       ok('stockOnlyDiff: differe par un prix -> false (vrai conflit)', stockOnlyDiff(base,priceDiff)===false);
       ok('stockOnlyDiff: payloads identiques -> true', stockOnlyDiff(base,{...base})===true);
       ok('stockOnlyDiff: payload manquant -> false', stockOnlyDiff(base,null)===false); }
+
+    // ─── Tension artérielle : mmHg + notation cmHg locale, unité tolérée ───
+    ok('parseTension: 120/80 -> 120/80', parseTension('120/80').ta==='120/80');
+    ok('parseTension: cmHg 12/8 -> 120/80', parseTension('12/8').ta==='120/80');
+    ok('parseTension: cmHg 13/9 -> 130/90', parseTension('13/9').ta==='130/90');
+    ok('parseTension: unite mmHg toleree (130/85 mmHg)', parseTension('130/85 mmHg').ta==='130/85');
+    ok('parseTension: separateur tiret 120-80', parseTension('120-80').ta==='120/80');
+    ok('parseTension: aberrant -> null', parseTension('300/200')===null);
+    ok('parseTension: non numerique -> null', parseTension('abc')===null);
   }catch(e){ ok('exception fatale: '+e.message, false); }
   return results;
 })()`;

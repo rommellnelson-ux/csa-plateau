@@ -1418,8 +1418,8 @@ VIEW['acc-constantes'] = (el) => {
         </div>
         <div class="fs">
           <div class="fs-title">Constantes vitales</div>
-          <div class="fr"><label>Tension artérielle (mmHg)</label>
-            <input type="text" id="const-ta" placeholder="Ex: 130/85 mmHg" style="flex:1"></div>
+          <div class="fr"><label>Tension artérielle</label>
+            <input type="text" id="const-ta" placeholder="Ex: 120/80 (mmHg) ou 12/8 (cmHg)" style="flex:1"></div>
           <div class="fr"><label>Température (°C)</label>
             <input type="text" inputmode="decimal" id="const-temp" placeholder="Ex: 37,5" oninput="alertTemp()"></div>
           <div id="temp-alert"></div>
@@ -1472,6 +1472,21 @@ function alertTemp(){
   else el.innerHTML='';
 }
 
+// Tension artérielle : accepte le format mmHg (120/80) ET la notation locale en
+// cmHg (12/8), avec ou sans unité écrite, séparateur « / » ou « - ». Normalise et
+// stocke en mmHg (cohérent avec le libellé du champ et les alertes HTA).
+// Renvoie {ta:'120/80', sys, dia} ou null si non interprétable.
+function parseTension(raw){
+  const s=String(raw||'').toLowerCase().replace(/mm\s*hg|cm\s*hg/g,'').replace(/\s+/g,'');
+  const m=s.match(/^(\d{1,3}(?:[.,]\d)?)[\/\-](\d{1,3}(?:[.,]\d)?)$/);
+  if(!m) return null;
+  let sys=parseFloat(m[1].replace(',','.')), dia=parseFloat(m[2].replace(',','.'));
+  if(!(sys>0)||!(dia>0)) return null;
+  if(sys<40){ sys*=10; dia*=10; }            // notation cmHg -> mmHg
+  sys=Math.round(sys); dia=Math.round(dia);
+  if(sys<60||sys>260||dia<30||dia>160) return null;
+  return {ta:sys+'/'+dia, sys, dia};
+}
 function saveConstantes(){
   const pid=document.getElementById('cs-pid').value;
   const nom=document.getElementById('cs-pnom').value;
@@ -1487,18 +1502,20 @@ function saveConstantes(){
   if(temperature&&(temperature<30||temperature>45)){alert('Température invalide (30 à 45 °C).');return;}
   if(pouls&&(pouls<20||pouls>250)){alert('Pouls invalide (20 à 250 bpm).');return;}
   if(spo2&&(spo2<50||spo2>100)){alert('SpO2 invalide (50 à 100 %).');return;}
+  let taStored='';
   if(taValue){
-    const match=taValue.match(/^(\d{2,3})\s*\/\s*(\d{2,3})$/);
-    if(!match||+match[1]<50||+match[1]>260||+match[2]<30||+match[2]>160){
-      alert('Tension invalide. Format attendu: 120/80.');
+    const ta=parseTension(taValue);
+    if(!ta){
+      alert('Tension invalide. Exemples acceptés : 120/80, 12/8, ou 130/85 mmHg (mmHg ou cmHg).');
       return;
     }
+    taStored=ta.ta;
   }
   const imc=poids&&taille?poids/((taille/100)**2):0;
   const constantes=DB.push('constantes',{
     patient_id:pid,patient_nom:nom,
     poids,taille,imc:Math.round(imc*10)/10,
-    ta:taValue,
+    ta:taStored,
     temperature:temperature||'',
     pouls:pouls||'',
     spo2:spo2||'',
