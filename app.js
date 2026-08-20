@@ -1619,14 +1619,31 @@ VIEW['acc-consultation'] = (el) => {
               <option value="CONTROLE">Consultation de contrôle</option>
               <option value="URGENCE">Urgence</option>
             </select></div>
-          <div class="fr"><label>Motif / Diagnostic provisoire</label>
-            <textarea id="cc-motif" placeholder="Symptômes, motif de la visite..."></textarea></div>
+          <div class="fs-title" style="margin-top:10px;color:var(--bleu)">1 · Anamnèse / Interrogatoire</div>
+          <div class="fr"><label>Motif de consultation</label>
+            <textarea id="cc-motif" placeholder="Plainte principale, motif de la visite"></textarea></div>
+          <div class="fr"><label>Histoire de la maladie</label>
+            <textarea id="cc-histoire" placeholder="Début, évolution, signes associés, facteurs déclenchants..."></textarea></div>
+          <div class="fr"><label>Antécédents (mise à jour dossier)</label>
+            <textarea id="cc-antecedents" placeholder="HTA, diabète, asthme, chirurgie, allergies..."></textarea></div>
+          <div class="fr"><label>Traitement en cours</label>
+            <textarea id="cc-trait-actuel" placeholder="Traitements déjà pris par le patient"></textarea></div>
+
+          <div class="fs-title" style="margin-top:10px;color:var(--bleu)">2 · Examen clinique</div>
+          <div class="fr"><label>Examen général</label>
+            <textarea id="cc-exam-general" placeholder="État général, conscience, coloration, hydratation, œdèmes..."></textarea></div>
+          <div class="fr"><label>Examen physique</label>
+            <textarea id="cc-exam-physique" placeholder="Par appareil : cardio-vasculaire, pleuro-pulmonaire, abdomen, neuro, ORL..."></textarea></div>
+
+          <div class="fs-title" style="margin-top:10px;color:var(--bleu)">3 · Diagnostic</div>
+          <div class="fr"><label>Diagnostic retenu</label>
+            <textarea id="cc-diagnostic" placeholder="Diagnostic principal (+ diagnostic différentiel éventuel)"></textarea></div>
+
+          <div class="fs-title" style="margin-top:10px;color:var(--bleu)">4 · Prise en charge</div>
           <div class="fr"><label>Traitement (médicaments)</label>
             <textarea id="cc-traitement" placeholder="Médicament — posologie — durée (un par ligne)"></textarea></div>
           <div class="fr"><label>Examens à prescrire</label>
             <textarea id="cc-examens" placeholder="Labo interne / labo externe / imagerie / complémentaire (un par ligne)"></textarea></div>
-          <div class="fr"><label>Antécédents (mise à jour dossier)</label>
-            <textarea id="cc-antecedents" placeholder="HTA, diabète, asthme, chirurgie antérieure, allergies..."></textarea></div>
           <div class="fr"><label>Orientation(s)</label>
             <div style="flex:1;display:flex;flex-wrap:wrap;gap:6px">
               <label><input type="checkbox" value="LABO"> Laboratoire</label>
@@ -1668,6 +1685,7 @@ function selectCC(id,nom,statut){
   document.getElementById('cc-pdroits').value=patient?.droits_verifies||'1';
   document.getElementById('cc-pnom-lbl').textContent=nom+' ('+statut+')';
   document.getElementById('cc-clinical').innerHTML=renderClinicalSummary(id);
+  ['cc-motif','cc-histoire','cc-trait-actuel','cc-exam-general','cc-exam-physique','cc-diagnostic','cc-traitement','cc-examens'].forEach(fid=>{const e=document.getElementById(fid);if(e)e.value='';});
   document.getElementById('cc-antecedents').value=patient?.antecedents||'';
   document.getElementById('cc-selected').style.display='block';
   document.getElementById('cc-search').value='';
@@ -1736,7 +1754,12 @@ function saveConsultation(){
   else if(statutFacturation==='CMU') tarif=150;
   else if(statutFacturation==='NA') tarif=1000;
   // FPM : consultation gratuite
-  const motif=document.getElementById('cc-motif').value;
+  const motif=document.getElementById('cc-motif').value.trim();
+  const histoire=document.getElementById('cc-histoire').value.trim();
+  const traitActuel=document.getElementById('cc-trait-actuel').value.trim();
+  const examGeneral=document.getElementById('cc-exam-general').value.trim();
+  const examPhysique=document.getElementById('cc-exam-physique').value.trim();
+  const diagnostic=document.getElementById('cc-diagnostic').value.trim();
   const traitement=document.getElementById('cc-traitement').value.trim();
   const examens=document.getElementById('cc-examens').value.trim();
   // ordonnance conservée (rétro-compatibilité dossier/reçu), désormais structurée.
@@ -1744,7 +1767,9 @@ function saveConsultation(){
   const antecedents=document.getElementById('cc-antecedents').value.trim();
   const orients=[...document.querySelectorAll('#cc-selected input[type=checkbox]:checked')].map(c=>c.value);
   const c=DB.push('consultations',{
-    patient_id:pid,patient_nom:nom,statut,statut_facturation:statutFacturation,droits_verifies:droits,type,praticien,motif,traitement,examens_prescrits:examens,ordonnance:ordo,orientations:orients,tarif,date:today()
+    patient_id:pid,patient_nom:nom,statut,statut_facturation:statutFacturation,droits_verifies:droits,type,praticien,
+    motif,histoire,traitement_actuel:traitActuel,examen_general:examGeneral,examen_physique:examPhysique,diagnostic,
+    traitement,examens_prescrits:examens,ordonnance:ordo,orientations:orients,tarif,date:today()
   });
   if(antecedents){
     const pts=DB.get('patients');const i=pts.findIndex(p=>p.id===pid);
@@ -1805,6 +1830,7 @@ function saveConsultation(){
       <div class="btn-row no-print">
         <button class="btn btn-print btn-sm" onclick="printSection('fact-consult-${pid}')">🖨 Imprimer ticket</button>
       </div>
+      ${(motif||histoire||traitActuel||examGeneral||examPhysique||diagnostic)?`<div class="card" style="margin-top:8px" id="cr-${c.id}"><div class="card-title">Compte-rendu de consultation</div><div class="recu"><div class="recu-title">CONSULTATION — ${escHtml(nom)}</div><div style="font-size:10px;text-align:center">${new Date().toLocaleString('fr-FR')} · ${escHtml(praticien)} · ${escHtml(CURRENT_AGENT.nom)}</div><hr style="margin:6px 0">${motif?`<div style="font-size:11px;margin-bottom:3px"><strong>Motif :</strong> ${escHtml(motif).replace(/\n/g,'<br>')}</div>`:''}${histoire?`<div style="font-size:11px;margin-bottom:3px"><strong>Histoire de la maladie :</strong> ${escHtml(histoire).replace(/\n/g,'<br>')}</div>`:''}${traitActuel?`<div style="font-size:11px;margin-bottom:3px"><strong>Traitement en cours :</strong> ${escHtml(traitActuel).replace(/\n/g,'<br>')}</div>`:''}${examGeneral?`<div style="font-size:11px;margin-bottom:3px"><strong>Examen général :</strong> ${escHtml(examGeneral).replace(/\n/g,'<br>')}</div>`:''}${examPhysique?`<div style="font-size:11px;margin-bottom:3px"><strong>Examen physique :</strong> ${escHtml(examPhysique).replace(/\n/g,'<br>')}</div>`:''}${diagnostic?`<div style="font-size:11px;margin-bottom:3px"><strong>Diagnostic :</strong> ${escHtml(diagnostic).replace(/\n/g,'<br>')}</div>`:''}</div><div class="btn-row no-print"><button class="btn btn-print btn-sm" onclick="printSection('cr-${c.id}')">🖨 Imprimer compte-rendu</button></div></div>`:''}
       ${ordo?`<div class="card" style="margin-top:8px" id="ordo-${c.id}"><div class="card-title">Ordonnance</div><div class="recu"><div class="recu-title">ORDONNANCE</div><div style="font-size:11px">${escHtml(ordo).replace(/\n/g,'<br>')}</div><hr style="margin:6px 0"><div style="font-size:10px">Prescrite par : <strong>${escHtml(praticien)}</strong> — ${escHtml(CURRENT_AGENT.nom)}</div></div><div class="btn-row no-print"><button class="btn btn-print btn-sm" onclick="printSection('ordo-${c.id}')">🖨 Imprimer ordonnance</button></div></div>`:''}
       ${orients.length?`<div class="al al-info" style="margin-top:8px"><strong>Orientations :</strong> ${orients.join(' → ')}</div>`:''}
     </div>`;
@@ -4225,6 +4251,9 @@ function openTimelineDetail(type,id){
       <div class="recu-line"><span>Type</span><span>${escHtml(item.type||'—')}</span></div>
       <div class="recu-line"><span>Praticien</span><span>${escHtml(item.praticien||'—')}</span></div>
       <div style="font-size:11px;margin-top:6px"><strong>Motif:</strong> ${escHtml(item.motif||'—')}</div>
+      ${item.histoire?`<div style="font-size:11px;margin-top:6px"><strong>Histoire:</strong> ${escHtml(item.histoire)}</div>`:''}
+      ${(item.examen_general||item.examen_physique)?`<div style="font-size:11px;margin-top:6px"><strong>Examen:</strong> ${escHtml([item.examen_general,item.examen_physique].filter(Boolean).join(' — '))}</div>`:''}
+      <div style="font-size:11px;margin-top:6px"><strong>Diagnostic:</strong> ${escHtml(item.diagnostic||'—')}</div>
       <div style="font-size:11px;margin-top:6px"><strong>Ordonnance:</strong> ${escHtml(item.ordonnance||'—')}</div>
     </div></div>`;
   } else if(type==='CONST'){
