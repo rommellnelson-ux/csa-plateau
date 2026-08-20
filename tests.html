@@ -297,6 +297,13 @@ const TEST_SRC = `(async function(){
     ok('parseTension: separateur tiret 120-80', parseTension('120-80').ta==='120/80');
     ok('parseTension: aberrant -> null', parseTension('300/200')===null);
     ok('parseTension: non numerique -> null', parseTension('abc')===null);
+
+    // ─── Âge patient (parcours clinique) ───
+    { const y=new Date().getFullYear();
+      ok('patientAge: ne 1er janvier il y a 30 ans -> 30', patientAge((y-30)+'-01-01')===30);
+      ok('patientAge: date vide -> null', patientAge('')===null);
+      ok('patientAge: date invalide -> null', patientAge('pas-une-date')===null);
+      ok('patientAge: date future -> null', patientAge((y+1)+'-01-01')===null); }
   }catch(e){ ok('exception fatale: '+e.message, false); }
   return results;
 })()`;

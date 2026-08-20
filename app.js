@@ -1116,6 +1116,21 @@ function getEffectiveBillingStatut(patientId,selectedStatut){
 function getLatestConstantes(patientId){
   return DB.get('constantes').find(c=>c.patient_id===patientId)||null;
 }
+// Dernières constantes SEULEMENT si elles ont été prises aujourd'hui, sinon null.
+function getTodayConstantes(patientId){
+  const c=getLatestConstantes(patientId);
+  if(!c) return null;
+  return String(c.created_at||'').slice(0,10)===today() ? c : null;
+}
+// Âge en années révolues à partir de la date de naissance (null si absente/invalide).
+function patientAge(ddn){
+  if(!ddn) return null;
+  const d=new Date(ddn); if(isNaN(d.getTime())) return null;
+  const now=new Date();
+  let a=now.getFullYear()-d.getFullYear();
+  if(now.getMonth()<d.getMonth()||(now.getMonth()===d.getMonth()&&now.getDate()<d.getDate())) a--;
+  return (a>=0&&a<130)?a:null;
+}
 function getAlertFlags(c){
   if(!c) return [];
   const flags=[];
@@ -1159,18 +1174,37 @@ function renderCriticalBanner(module){
 function renderClinicalSummary(patientId){
   const p=getPatientById(patientId);
   if(!p) return '';
+  const todayC=getTodayConstantes(patientId);
   const lastConst=getLatestConstantes(patientId);
-  const flags=getAlertFlags(lastConst);
+  const shown=todayC||lastConst;
+  const flags=getAlertFlags(shown);
   const consultations=DB.get('consultations').filter(c=>c.patient_id===patientId).slice(0,5);
   const prestataires=[...new Set(consultations.map(c=>c.agent_nom).filter(Boolean))];
   const hist=consultations.map(c=>`${fmtD(c.created_at)} - ${c.type} (${escHtml(c.agent_nom||'?')})`).join(' | ');
+  const age=patientAge(p.ddn);
+  const sexe=p.genre==='F'?'Féminin':p.genre==='M'?'Masculin':(p.genre||'—');
+  const fmtConst=(c)=>{
+    if(!c) return 'Non disponibles';
+    const heure=c.created_at?new Date(c.created_at).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):'';
+    const parts=[];
+    if(c.temperature) parts.push(`T° ${escHtml(String(c.temperature))} °C`);
+    if(c.ta) parts.push(`TA ${escHtml(c.ta)}`);
+    if(c.pouls) parts.push(`Pouls ${escHtml(String(c.pouls))}`);
+    if(c.spo2) parts.push(`SpO2 ${escHtml(String(c.spo2))} %`);
+    if(c.poids) parts.push(`Poids ${escHtml(String(c.poids))} kg`);
+    if(c.taille) parts.push(`Taille ${escHtml(String(c.taille))} cm`);
+    if(c.imc) parts.push(`IMC ${escHtml(String(c.imc))}`);
+    return (heure?`<span style="color:var(--muted)">${heure}</span> · `:'')+(parts.join(' | ')||'—');
+  };
   return `<div class="fs" style="margin-top:8px">
     <div class="fs-title" style="color:var(--bleu)">Dossier clinique rapide</div>
+    <div style="font-size:12.5px;margin-bottom:6px"><strong>${escHtml(p.nom||'')}</strong> · ${sexe} · <strong>${age!=null?age+' ans':'âge inconnu'}</strong>${p.dossier_no?` · Dossier ${escHtml(p.dossier_no)}`:''}</div>
+    <div style="font-size:11px;margin-bottom:4px"><strong>Constantes ${todayC?'du jour':(lastConst?'(dernières, '+fmtD(lastConst.created_at)+')':'')} :</strong> ${fmtConst(shown)}</div>
+    ${!todayC?`<div class="al al-warn" style="font-size:10px;padding:4px 8px;margin-bottom:6px">Aucune constante prise aujourd'hui — à faire mesurer avant l'examen.</div>`:''}
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">${flags.length?flags.map(alertBadge).join(''):'<span class="badge b-ok">Aucune alerte vitale</span>'}</div>
     <div style="font-size:11px;margin-bottom:6px"><strong>Antécédents :</strong> ${escHtml(p.antecedents||'Non renseignés')}</div>
     <div style="font-size:11px;margin-bottom:6px"><strong>Prestataires antérieurs :</strong> ${prestataires.length?escHtml(prestataires.join(', ')):'—'}</div>
-    <div style="font-size:11px;margin-bottom:6px"><strong>Anciennes consultations :</strong> ${hist?escHtml(hist):'—'}</div>
-    <div style="font-size:11px;margin-bottom:6px"><strong>Dernières constantes :</strong> ${lastConst?`${lastConst.temperature||'—'}°C | TA ${escHtml(lastConst.ta||'—')} | SpO2 ${lastConst.spo2||'—'}% | IMC ${lastConst.imc||'—'}`:'Non disponibles'}</div>
-    <div style="display:flex;gap:6px;flex-wrap:wrap">${flags.length?flags.map(alertBadge).join(''):'<span class="badge b-ok">Aucune alerte vitale</span>'}</div>
+    <div style="font-size:11px"><strong>Anciennes consultations :</strong> ${hist?escHtml(hist):'—'}</div>
   </div>`;
 }
 function getOrientedPatients(serviceCode){
@@ -1563,6 +1597,7 @@ VIEW['acc-consultation'] = (el) => {
       <div id="cc-new-wrap" style="display:none;border:1px dashed var(--vert);border-radius:8px;padding:10px;margin-bottom:8px;background:#f3fbf5">
         <div class="fr"><label>Nom du patient</label><input type="text" id="cc-new-nom" placeholder="Nom et prénoms"></div>
         <div class="fr"><label>Sexe</label><select id="cc-new-genre"><option>M</option><option>F</option></select></div>
+        <div class="fr"><label>Date de naissance</label><input type="date" id="cc-new-ddn"></div>
         <div class="fr"><label>Statut</label><select id="cc-new-statut"><option value="NA">NA (non assuré)</option><option value="FPM">FPM</option><option value="CMU">CMU</option></select></div>
         <button class="btn btn-primary btn-sm" onclick="ccCreatePatient()">Créer et sélectionner</button>
       </div>
@@ -1586,8 +1621,10 @@ VIEW['acc-consultation'] = (el) => {
             </select></div>
           <div class="fr"><label>Motif / Diagnostic provisoire</label>
             <textarea id="cc-motif" placeholder="Symptômes, motif de la visite..."></textarea></div>
-          <div class="fr"><label>Prescription / Ordonnance</label>
-            <textarea id="cc-ordo" placeholder="Médicaments, examens prescrits..."></textarea></div>
+          <div class="fr"><label>Traitement (médicaments)</label>
+            <textarea id="cc-traitement" placeholder="Médicament — posologie — durée (un par ligne)"></textarea></div>
+          <div class="fr"><label>Examens à prescrire</label>
+            <textarea id="cc-examens" placeholder="Labo interne / labo externe / imagerie / complémentaire (un par ligne)"></textarea></div>
           <div class="fr"><label>Antécédents (mise à jour dossier)</label>
             <textarea id="cc-antecedents" placeholder="HTA, diabète, asthme, chirurgie antérieure, allergies..."></textarea></div>
           <div class="fr"><label>Orientation(s)</label>
@@ -1649,7 +1686,7 @@ function ccCreatePatient(){
   const statut=document.getElementById('cc-new-statut').value;
   const statutSimple=statut.startsWith('FPM')?'FPM':statut;
   const p=DB.push('patients',{
-    nom, ddn:'', genre:document.getElementById('cc-new-genre').value,
+    nom, ddn:document.getElementById('cc-new-ddn')?.value||'', genre:document.getElementById('cc-new-genre').value,
     tel:'', adresse:'', statut, statut_simple:statutSimple,
     droits_verifies:'1', cmu_disponible:'0', antecedents:'',
     dossier_no:generatePatientDossier(),
@@ -1700,11 +1737,14 @@ function saveConsultation(){
   else if(statutFacturation==='NA') tarif=1000;
   // FPM : consultation gratuite
   const motif=document.getElementById('cc-motif').value;
-  const ordo=document.getElementById('cc-ordo').value;
+  const traitement=document.getElementById('cc-traitement').value.trim();
+  const examens=document.getElementById('cc-examens').value.trim();
+  // ordonnance conservée (rétro-compatibilité dossier/reçu), désormais structurée.
+  const ordo=[traitement?('TRAITEMENT :\n'+traitement):'',examens?('EXAMENS PRESCRITS :\n'+examens):''].filter(Boolean).join('\n\n');
   const antecedents=document.getElementById('cc-antecedents').value.trim();
   const orients=[...document.querySelectorAll('#cc-selected input[type=checkbox]:checked')].map(c=>c.value);
   const c=DB.push('consultations',{
-    patient_id:pid,patient_nom:nom,statut,statut_facturation:statutFacturation,droits_verifies:droits,type,praticien,motif,ordonnance:ordo,orientations:orients,tarif,date:today()
+    patient_id:pid,patient_nom:nom,statut,statut_facturation:statutFacturation,droits_verifies:droits,type,praticien,motif,traitement,examens_prescrits:examens,ordonnance:ordo,orientations:orients,tarif,date:today()
   });
   if(antecedents){
     const pts=DB.get('patients');const i=pts.findIndex(p=>p.id===pid);
@@ -1824,6 +1864,7 @@ VIEW['soins-actes'] = (el) => {
         <div style="font-size:11px;font-weight:700;color:var(--bleu);margin-bottom:6px">Patient non enregistré à l'accueil ? Créez-le ici :</div>
         <div class="fr"><label>Nom du patient</label><input type="text" id="si-new-nom" placeholder="Nom et prénoms"></div>
         <div class="fr"><label>Sexe</label><select id="si-new-genre"><option>M</option><option>F</option></select></div>
+        <div class="fr"><label>Date de naissance</label><input type="date" id="si-new-ddn"></div>
         <div class="fr"><label>Statut</label><select id="si-new-statut"><option value="NA">NA (non assuré)</option><option value="FPM">FPM</option><option value="CMU">CMU</option></select></div>
         <button class="btn btn-primary btn-sm" onclick="siCreateDirectPatient()">Créer et sélectionner</button>
       </div>
@@ -1908,7 +1949,7 @@ function siCreateDirectPatient(){
   const statut=document.getElementById('si-new-statut').value;
   const statutSimple=statut.startsWith('FPM')?'FPM':statut;
   const p=DB.push('patients',{
-    nom, ddn:'', genre:document.getElementById('si-new-genre').value,
+    nom, ddn:document.getElementById('si-new-ddn')?.value||'', genre:document.getElementById('si-new-genre').value,
     tel:'', adresse:'',
     statut, statut_simple:statutSimple,
     droits_verifies:'1', cmu_disponible:'0', antecedents:'',
