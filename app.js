@@ -1122,6 +1122,34 @@ function getTodayConstantes(patientId){
   if(!c) return null;
   return String(c.created_at||'').slice(0,10)===today() ? c : null;
 }
+// Rendez-vous PRÉVUS d'un patient, triés par date croissante.
+function patientRdvs(p){ return ((p&&p.rdvs)||[]).filter(r=>r&&r.statut==='PREVU').sort((a,b)=>String(a.date).localeCompare(String(b.date))); }
+// Tous les RDV prévus (aplati patient + rdv), pour la file « RDV du jour ».
+function allPlannedRdvs(){
+  const out=[];
+  DB.get('patients').forEach(p=>((p.rdvs)||[]).forEach(r=>{ if(r&&r.statut==='PREVU') out.push({patient:p,rdv:r}); }));
+  return out.sort((a,b)=>String(a.rdv.date).localeCompare(String(b.rdv.date)));
+}
+// Badges de rappel RDV pour un patient (aujourd'hui / manqué / prochain).
+function rdvReminderBadges(p){
+  const rdvs=patientRdvs(p), t=today(); let h='';
+  const auj=rdvs.find(r=>r.date===t);
+  const manques=rdvs.filter(r=>r.date<t);
+  const prochain=rdvs.find(r=>r.date>t);
+  if(auj) h+=`<span class="badge b-warn">RDV aujourd'hui${auj.motif?' — '+escHtml(auj.motif):''}</span>`;
+  if(manques.length) h+=`<span class="badge b-err">RDV manqué : ${escHtml(manques.map(r=>fmtD(r.date)).join(', '))}</span>`;
+  if(!auj&&prochain) h+=`<span class="badge b-ok" style="background:#e3f2fd;color:#0d47a1">Prochain RDV : ${escHtml(fmtD(prochain.date))}${prochain.motif?' ('+escHtml(prochain.motif)+')':''}</span>`;
+  return h;
+}
+// Marque un RDV comme honoré (présent). Mise à jour du dossier patient (mutable).
+function honorRdv(patientId,rdvId){
+  const pts=DB.get('patients');const i=pts.findIndex(p=>p.id===patientId);
+  if(i<0) return;
+  (pts[i].rdvs||[]).forEach(r=>{ if(r.id===rdvId) r.statut='HONORE'; });
+  persistUpdatedRecord('patients',pts,pts[i]);
+  logAudit('RDV_HONORE',{patient_id:patientId,rdv_id:rdvId});
+  if(typeof showView==='function') showView('acc-liste');
+}
 // Âge en années révolues à partir de la date de naissance (null si absente/invalide).
 function patientAge(ddn){
   if(!ddn) return null;
@@ -1201,7 +1229,7 @@ function renderClinicalSummary(patientId){
     <div style="font-size:12.5px;margin-bottom:6px"><strong>${escHtml(p.nom||'')}</strong> · ${sexe} · <strong>${age!=null?age+' ans':'âge inconnu'}</strong>${p.dossier_no?` · Dossier ${escHtml(p.dossier_no)}`:''}</div>
     <div style="font-size:11px;margin-bottom:4px"><strong>Constantes ${todayC?'du jour':(lastConst?'(dernières, '+fmtD(lastConst.created_at)+')':'')} :</strong> ${fmtConst(shown)}</div>
     ${!todayC?`<div class="al al-warn" style="font-size:10px;padding:4px 8px;margin-bottom:6px">Aucune constante prise aujourd'hui — à faire mesurer avant l'examen.</div>`:''}
-    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">${flags.length?flags.map(alertBadge).join(''):'<span class="badge b-ok">Aucune alerte vitale</span>'}</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">${flags.length?flags.map(alertBadge).join(''):'<span class="badge b-ok">Aucune alerte vitale</span>'}${rdvReminderBadges(p)}</div>
     <div style="font-size:11px;margin-bottom:6px"><strong>Antécédents :</strong> ${escHtml(p.antecedents||'Non renseignés')}</div>
     <div style="font-size:11px;margin-bottom:6px"><strong>Prestataires antérieurs :</strong> ${prestataires.length?escHtml(prestataires.join(', ')):'—'}</div>
     <div style="font-size:11px"><strong>Anciennes consultations :</strong> ${hist?escHtml(hist):'—'}</div>
@@ -1652,6 +1680,11 @@ VIEW['acc-consultation'] = (el) => {
               <label><input type="checkbox" value="OBS"> Mise en obs.</label>
               <label><input type="checkbox" value="RDV"> Rendez-vous</label>
             </div></div>
+          <div class="fr"><label>Rendez-vous de suivi</label>
+            <div style="flex:1;display:flex;gap:8px;flex-wrap:wrap">
+              <input type="date" id="cc-rdv-date" style="min-width:150px">
+              <input type="text" id="cc-rdv-motif" placeholder="Motif du RDV (contrôle, résultats…)" style="flex:1;min-width:180px">
+            </div></div>
         </div>
         <div class="tl"><span>Tarif consultation</span><strong id="cc-tarif-lbl">—</strong></div>
         <div class="btn-row">
@@ -1685,7 +1718,7 @@ function selectCC(id,nom,statut){
   document.getElementById('cc-pdroits').value=patient?.droits_verifies||'1';
   document.getElementById('cc-pnom-lbl').textContent=nom+' ('+statut+')';
   document.getElementById('cc-clinical').innerHTML=renderClinicalSummary(id);
-  ['cc-motif','cc-histoire','cc-trait-actuel','cc-exam-general','cc-exam-physique','cc-diagnostic','cc-traitement','cc-examens'].forEach(fid=>{const e=document.getElementById(fid);if(e)e.value='';});
+  ['cc-motif','cc-histoire','cc-trait-actuel','cc-exam-general','cc-exam-physique','cc-diagnostic','cc-traitement','cc-examens','cc-rdv-date','cc-rdv-motif'].forEach(fid=>{const e=document.getElementById(fid);if(e)e.value='';});
   document.getElementById('cc-antecedents').value=patient?.antecedents||'';
   document.getElementById('cc-selected').style.display='block';
   document.getElementById('cc-search').value='';
@@ -1765,15 +1798,22 @@ function saveConsultation(){
   // ordonnance conservée (rétro-compatibilité dossier/reçu), désormais structurée.
   const ordo=[traitement?('TRAITEMENT :\n'+traitement):'',examens?('EXAMENS PRESCRITS :\n'+examens):''].filter(Boolean).join('\n\n');
   const antecedents=document.getElementById('cc-antecedents').value.trim();
+  const rdvDate=document.getElementById('cc-rdv-date').value;
+  const rdvMotif=document.getElementById('cc-rdv-motif').value.trim();
   const orients=[...document.querySelectorAll('#cc-selected input[type=checkbox]:checked')].map(c=>c.value);
+  if(rdvDate && !orients.includes('RDV')) orients.push('RDV');
   const c=DB.push('consultations',{
     patient_id:pid,patient_nom:nom,statut,statut_facturation:statutFacturation,droits_verifies:droits,type,praticien,
     motif,histoire,traitement_actuel:traitActuel,examen_general:examGeneral,examen_physique:examPhysique,diagnostic,
     traitement,examens_prescrits:examens,ordonnance:ordo,orientations:orients,tarif,date:today()
   });
-  if(antecedents){
+  if(antecedents||rdvDate){
     const pts=DB.get('patients');const i=pts.findIndex(p=>p.id===pid);
-    if(i>=0){pts[i].antecedents=antecedents;persistUpdatedRecord('patients',pts,pts[i]);}
+    if(i>=0){
+      if(antecedents) pts[i].antecedents=antecedents;
+      if(rdvDate) pts[i].rdvs=[...(pts[i].rdvs||[]),{id:'RDV-'+Date.now(),date:rdvDate,motif:rdvMotif,statut:'PREVU',cree_par:CURRENT_AGENT.nom,created_at:new Date().toISOString()}];
+      persistUpdatedRecord('patients',pts,pts[i]);
+    }
   }
   logAudit('CONSULTATION_CREATE',{patient_id:pid,nom,statut,statut_facturation:statutFacturation,type,orientations:orients,tarif});
   if(tarif>0) DB.push('transactions',{
@@ -1842,6 +1882,15 @@ VIEW['acc-liste'] = (el) => {
   const consults=DB.todayItems('consultations');
   const patients=DB.todayItems('patients');
   const totalEnc=consults.reduce((s,c)=>s+c.tarif,0);
+  const rdvAll=allPlannedRdvs(), tISO=today();
+  const rdvJour=rdvAll.filter(x=>x.rdv.date===tISO);
+  const rdvRetard=rdvAll.filter(x=>x.rdv.date<tISO);
+  const rdvAvenir=rdvAll.filter(x=>{const dd=new Date(x.rdv.date),n=new Date();return x.rdv.date>tISO&&(dd-n)/86400000<=7;});
+  const rdvRow=(x)=>`<tr><td style="white-space:nowrap">${escHtml(fmtD(x.rdv.date))}</td><td style="font-weight:700;font-size:12px">${escHtml(x.patient.nom)}</td><td style="font-size:11px">${escHtml(x.rdv.motif||'—')}</td><td class="no-print"><button class="btn btn-sm btn-primary" onclick="honorRdv('${x.patient.id}','${x.rdv.id}')">Présent</button></td></tr>`;
+  const rdvSection=(titre,arr,coul)=>arr.length?`<div style="font-size:11px;font-weight:700;color:${coul};margin:8px 0 4px">${titre} (${arr.length})</div><div class="tw"><table><tr><th>Date</th><th>Patient</th><th>Motif</th><th class="no-print"></th></tr>${arr.map(rdvRow).join('')}</table></div>`:'';
+  const rdvCard=(rdvJour.length||rdvRetard.length||rdvAvenir.length)
+    ?`<div class="card" style="margin-top:12px" id="rdv-print"><div class="card-title">Rendez-vous</div>${rdvSection('Aujourd\'hui',rdvJour,'var(--orang)')}${rdvSection('En retard / manqués',rdvRetard,'var(--rouge)')}${rdvSection('À venir (7 jours)',rdvAvenir,'var(--bleu)')}<div class="btn-row no-print"><button class="btn btn-print btn-sm" onclick="printSection('rdv-print')">Imprimer les RDV</button></div></div>`
+    :`<div class="card" style="margin-top:12px"><div class="card-title">Rendez-vous</div><p style="color:#aaa;font-size:12px;margin:6px 0">Aucun rendez-vous planifié.</p></div>`;
   el.innerHTML=`
   <div class="g3 no-print" style="margin-bottom:12px">
     <div class="kpi" style="border-left-color:var(--marine)"><div class="kpi-ico">👥</div><div class="kpi-lbl">Patients</div><div class="kpi-val">${patients.length}</div></div>
@@ -1865,6 +1914,7 @@ VIEW['acc-liste'] = (el) => {
       ${consults.length?`<tr class="tr-tot"><td colspan="6">TOTAL</td><td>${fmt(totalEnc)} FCFA</td><td></td></tr>`:''}
     </table></div>
   </div>
+  ${rdvCard}
   <div class="btn-row no-print"><button class="btn btn-print btn-sm" onclick="printSection('file-print')">Imprimer la liste</button></div>`;
 };
 
